@@ -1,11 +1,18 @@
 # Theatre Data Platform
 Description: 
-This platform is a unified, modular data platform for operating theatre operations, intelligence, and AI training.
+
+This platform is a unified, modular data platform for operating theatre operations, intelligence, 
+
+and AI training.
 
 ## Vision
-From my personal experience working in the operating theatre, the "hidden" cost of care is often found in disjointed systems 
-and manual, inconsistent documentation. 
-This platform is designed from a clinical perspective to create a single, unified architecture that supports:
+From my personal experience working in the operating theatre, I found the "hidden" cost of care is 
+
+often found in disjointed systems and manual, inconsistent documentation. 
+
+This platform is designed from a clinical perspective to address these needs and create a single, 
+
+unified architecture that supports:
 
     Real-time theatre operations  
     
@@ -45,7 +52,7 @@ Description: These are core pipelines which support day-to-day theatre operation
 
     Instrument & Tray Tracking (sterilisation, location, usage history)
 
-    Loan Kit Management (vendor coordination, availability, returns)
+    Loan Kit and Instrument Management (vendor coordination, availability, returns)
 
     Anaesthetic Workflow (pre-op, intra-op, recovery data)
 
@@ -54,6 +61,8 @@ Description: These are core pipelines which support day-to-day theatre operation
     Patient Pathway Tracking (pre-op to theatre to recovery to discharge)
 
     Theatre Workflow Orchestration (case progress, status updates, delays)
+
+    Clinical coding support pipeline (Pipeline that processes theatre data and helps clinical coders code faster)
 
 ### Intelligence Modules: 
 
