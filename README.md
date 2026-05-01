@@ -1,4 +1,4 @@
-# Theatre Data Platform
+# Surgical Data Platform
 Description: 
 
 This platform is a unified, modular data platform for operating theatre operations, intelligence, 
@@ -7,12 +7,7 @@ and AI training.
 
 ## Vision
 From my personal experience working in the operating theatre, I found the "hidden" cost of care is 
-
-often found in disjointed systems and manual, inconsistent documentation. 
-
-This platform is designed from a clinical perspective to address these needs and create a single, 
-
-unified architecture that supports:
+often found in disjointed systems and manual, inconsistent documentation. This platform is designed from a clinical perspective to address these needs and create a single unified architecture that supports:
 
     Real-time theatre operations  
     
@@ -157,17 +152,24 @@ All modules follow the same lifecycle:
 5. Load  
 
 6. Schedule  
+
 7. Document  
 
 ---
 
 ## Roadmap
     Generate synthetic data and utilize data from public data sources
+    
     Transform data to ensure schema validation
+    
     Add FHIR/HL7 integration 
+    
     Add orchestration (Airflow)  
+    
     Add dashboards  
+    
     Add ML models  
+    
     Add CI/CD  
 
 

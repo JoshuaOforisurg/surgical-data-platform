@@ -1,4 +1,4 @@
-# Theatre Data Platform — Roadmap
+# Surgical Data Platform — Roadmap
 
 This roadmap outlines the planned evolution of the Surgical Data Platform across three phases: Core Foundations, Platform Expansion, and Advanced Intelligence & AI.
 
