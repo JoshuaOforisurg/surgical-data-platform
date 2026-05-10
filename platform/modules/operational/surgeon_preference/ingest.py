@@ -1,134 +1,233 @@
 """
-End‑to‑end ingestion pipeline for orthopaedic preference data.
+ETL ingestion pipeline for orthopaedic surgeon preference data.
+Handles messy synthetic data with missing values.
+No transformations or validation are applied.
 
-Here is how the code works:
-1. Read CSV
-2. Validate each row using Pydantic schema
-3. Load validated records into Postgres
+Pipeline Steps:
+1. Read CSV (no transformations)
+2. Load all rows into PostgreSQL (missing values allowed)
+3. Log errors only for unreadable rows
 
-This script is designed for production‑style pipelines:
-- strict validation
-- clear logging
-- safe database insertion
+Key Features:
+- All fields treated as text (no validation)
+- Missing values allowed (None, empty strings, NaN)
+- No transformations or coercion
 """
 
 import pandas as pd
 import psycopg2
-from pydantic import BaseModel, Field, ValidationError
-from typing import Literal, List
-from datetime import datetime
+from pydantic import BaseModel
+from typing import List, Optional
+import logging
+from dotenv import load_dotenv
+import os
+from psycopg2.pool import SimpleConnectionPool
+from psycopg2 import sql
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
 
+# Load environment variables
+load_dotenv()
+
+# Connection pool setup
+
+DB_POOL=SimpleConnectionPool(
+
+# Create and return a PostgreSQL database connection using .env variables.
+
+        minconn=1,
+        maxconn=5,
+        dbname=os.getenv("DB_NAME"),
+        user=os.getenv("DB_USER"),
+        password=os.getenv("DB_PASSWORD"),
+        host=os.getenv("DB_HOST"),
+        port=os.getenv("DB_PORT"),
+    )
 # ---------------------------------------------------------
-# Pydantic Schema (Validation Layer)
+# Pydantic Schema (No Validation, All Fields Optional)
 # ---------------------------------------------------------
-
 class OrthopaedicPreference(BaseModel):
-    surgeon_id: int = Field(..., ge=1000, le=9999)
-    surgeon_name: str
-    speciality: Literal["Orthopaedics"]
-    subspecialty: Literal[
-        "Joints", "Trauma", "Spine", "Paediatric", "Foot and Ankle"
-    ]
-    procedure: str
-    instrument: str
-    preferred_retractor_size: Literal["Small", "Medium", "Large", "Extra Large"]
-    preferred_drill_brand: str
-    needs_backup_suction: bool
-    years_of_experience: int = Field(..., ge=1, le=40)
-    hospital_affiliation: str
-    generation_timestamp: datetime
 
+    surgeon_id: Optional[str] = None
+    surgeon_name: Optional[str] = None
+    speciality: Optional[str] = None
+    subspecialty: Optional[str] = None
+    procedure: Optional[str] = None
+    instrument: Optional[str] = None
+    preferred_retractor_size: Optional[str] = None
+    preferred_drill_brand: Optional[str] = None
+    needs_backup_suction: Optional[str] = None
+    years_of_experience: Optional[str] = None
+    hospital_affiliation: Optional[str] = None
+    generation_timestamp: Optional[str] = None
+
+    class Config:
+        from_attributes = True
 
 # ---------------------------------------------------------
-# Ingestion (Extract + Validate)
+# Ingestion (Extract + No Validation)
 # ---------------------------------------------------------
+def ingest_csv(path: str) -> tuple[List[dict], int]:
+    """
+    Read a CSV file and return all rows as dictionaries.
+    No validation or transformations are applied.
 
-def ingest_csv(path: str) -> List[OrthopaedicPreference]:
-    print(f" Reading CSV from: {path}")
-    df = pd.read_csv(path)
+    Args:
+        path: Path to the CSV file.
 
-    validated_records = []
+    Returns:
+        tuple: (list_of_rows, error_count)
+
+    Raises:
+        FileNotFoundError: If the CSV file does not exist.
+        pd.errors.EmptyDataError: If the CSV file is empty.
+        Exception: For other unexpected errors during CSV reading.
+    """
+    logger.info(f"Reading CSV from: {path}")
+    try:
+        df = pd.read_csv(path)
+    except FileNotFoundError as e:
+        logger.error(f"CSV file not found: {e}")
+        raise
+    except pd.errors.EmptyDataError as e:
+        logger.error(f"CSV file is empty: {e}")
+        raise
+    except Exception as e:
+        logger.error(f"Failed to read CSV file: {e}")
+        raise
+
+    # Convert all rows to dictionaries (missing values are preserved as None/NaN)
+    records = df.to_dict("records")
     errors = 0
 
-    for idx, row in df.iterrows():
-        try:
-            record = OrthopaedicPreference(**row.to_dict())
-            validated_records.append(record)
-        except ValidationError as e:
-            errors += 1
-            print(f" Validation error at row {idx}: {e}")
-
-    print(f" Successfully validated {len(validated_records)} records")
-    if errors > 0:
-        print(f" {errors} rows failed validation and were skipped")
-
-    return validated_records
-
+    logger.info(f"Successfully read {len(records)} rows from CSV.")
+    return records, errors
 
 # ---------------------------------------------------------
 # Load to Postgres
 # ---------------------------------------------------------
-
-def load_to_postgres(records: List[OrthopaedicPreference], conn_string: str):
-    print("Connecting to Postgres...")
-    conn = conn = psycopg2.connect(
-    dbname="surgical_data_platform",
-    user="your_username",   #  change this to your user
-    password="your_password", # Change this to your password
-    host="localhost",
-    port="5432"
-)
-    cur = conn.cursor()
-
-    insert_sql = """
-        INSERT INTO staging.orthopaedic_preferences (
-            surgeon_id, surgeon_name, speciality, subspecialty,
-            procedure, instrument, preferred_retractor_size,
-            preferred_drill_brand, needs_backup_suction,
-            years_of_experience, hospital_affiliation,
-            generation_timestamp
-        )
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+def load_to_postgres(records: List[dict]) -> int:
     """
+    Load records into PostgreSQL staging table.
+    No validation or transformations are applied.
 
-    for r in records:
-        cur.execute(insert_sql, (
-            r.surgeon_id,
-            r.surgeon_name,
-            r.speciality,
-            r.subspecialty,
-            r.procedure,
-            r.instrument,
-            r.preferred_retractor_size,
-            r.preferred_drill_brand,
-            r.needs_backup_suction,
-            r.years_of_experience,
-            r.hospital_affiliation,
-            r.generation_timestamp
-        ))
+    Args:
+        records: List of dictionaries (rows) to load.
 
-    conn.commit()
-    cur.close()
-    conn.close()
-    print("Data successfully loaded into Postgres")
+    Returns:
+        int: Number of records successfully inserted.
+    """
+    logger.info("Connecting to PostgreSQL...")
+    conn = None
+    cur = None
+    inserted_count = 0
 
+    if not records:
+        logger.warning("No records to insert. Skipping database load.")
+        return inserted_count
+
+    try:
+        conn = DB_POOL.getconn()
+        cur = conn.cursor()
+
+        # Add the name of the table in your schema and it's contents here
+        insert_sql = sql.SQL("""
+            INSERT INTO bronze_schema (  
+                surgeon_id, surgeon_name, speciality, subspeciality,
+                procedure, instrument, preferred_retractor_size,
+                preferred_drill_brand, needs_backup_suction,
+                years_of_experience, hospital_affiliation,
+                generation_timestamp
+            )
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT DO NOTHING
+        """)
+
+        # Batch insertion for performance
+        batch_size = 100
+        for i in range(0, len(records), batch_size):
+            batch = records[i:i + batch_size]
+            batch_data = [
+                (
+                    row.get("surgeon_id"),
+                    row.get("surgeon_name"),
+                    row.get("speciality"),
+                    row.get("subspecialty"),
+                    row.get("procedure"),
+                    row.get("instrument"),
+                    row.get("preferred_retractor_size"),
+                    row.get("preferred_drill_brand"),
+                    row.get("needs_backup_suction"),
+                    row.get("years_of_experience"),
+                    row.get("hospital_affiliation"),
+                    row.get("generation_timestamp"),
+                )
+                for row in batch
+            ]
+            cur.executemany(insert_sql, batch_data)
+            inserted_count += len(batch)
+            logger.info(f"Inserted batch {i//batch_size + 1}: {len(batch)} records")
+
+        conn.commit()
+        logger.info(f"Successfully inserted {inserted_count} records into PostgreSQL.")
+
+    except psycopg2.Error as e:
+        logger.error(f"Failed to insert records into PostgreSQL: {e}")
+        if conn:
+            conn.rollback()
+        raise
+    finally:
+        if cur:
+            cur.close()
+        if conn:
+            DB_POOL.putconn(conn)
+
+    return inserted_count
 
 # ---------------------------------------------------------
 # Pipeline Runner
 # ---------------------------------------------------------
+def run_pipeline(csv_path: Optional[str] = None) -> None:
+    """
+    Run the complete ETL ingestion pipeline.
 
-def run_pipeline():
-    csv_path = "data/orthopaedic_preferences.csv"
-    conn_string = "postgresql://postgres:password@localhost:5432/theatre"
+    Args:
+        csv_path: Path to the CSV file. If None, uses default path.
+    """
+    csv_path = csv_path  # add your file path here
 
-    print(" Starting orthopaedic preference ingestion pipeline...")
+    logger.info("Starting surgeon preference ETL ingestion pipeline...")
+    try:
+        records, errors = ingest_csv(csv_path)
+        if not records:
+            logger.warning("No rows to insert. Pipeline aborted.")
+            return
 
-    records = ingest_csv(csv_path)
-    load_to_postgres(records, conn_string)
+        inserted_count = load_to_postgres(records)
+        logger.info(
+            f"Pipeline completed successfully. "
+            f"Read: {len(records)}, Inserted: {inserted_count}, Errors: {errors}"
+        )
 
-    print(" Pipeline completed successfully")
+    except Exception as e:
+        logger.error(f"Pipeline failed: {e}")
+        raise
 
+def close_pool() -> None:
+    """Close all connections in the PostgreSQL connection pool."""
+    DB_POOL.closeall()
+    logger.info("PostgreSQL connection pool closed.")
 
 if __name__ == "__main__":
-    run_pipeline()
+    try:
+        run_pipeline()
+    except Exception as e:
+        logger.critical(f"Pipeline crashed: {e}")
+        raise
+    finally:
+        close_pool()
