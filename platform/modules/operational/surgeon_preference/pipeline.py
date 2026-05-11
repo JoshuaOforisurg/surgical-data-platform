@@ -15,11 +15,11 @@ def run_pipeline(
     table: str = "surgeon_preferences",
     source_type: str = "csv"
 ):
-    logger.info("🚀 Surgeon Preference Pipeline started")
+    logger.info("Surgeon Preference Pipeline started")
     start_time = datetime.now()
 
     # 1. Ingest
-    logger.info("📥 Ingesting data...")
+    logger.info("Ingesting data...")
     df = ingest_data(source_path)
     logger.info(f"Ingested {len(df)} rows")
 
