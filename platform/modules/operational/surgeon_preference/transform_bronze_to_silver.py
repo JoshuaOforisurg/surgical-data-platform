@@ -279,9 +279,6 @@ def transform_data(df: pd.DataFrame) -> pd.DataFrame:
     # -----------------------------------------------------
     # AUDIT COLUMNS
     # -----------------------------------------------------
-    df["processed_at"] = pd.Timestamp.now('UTC')
-    df["pipeline_version"] = "1.0"
-
     logger.info("Transformation layer completed.")
 
     return df
