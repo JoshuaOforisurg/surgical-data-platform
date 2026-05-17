@@ -112,6 +112,10 @@ class PreferenceVersion(BaseModel):
 # Main Preference Card Model
 # -------------------------
 
+class FreeText:
+    pass
+
+
 class SurgeonPreferenceCard(BaseModel):
     surgeon: Surgeon
     procedure: Procedure
@@ -131,7 +135,7 @@ class SurgeonPreferenceCard(BaseModel):
     special_instructions: Optional[SpecialInstructions] = None # 10
     sutures: Optional[List[SutureItem]] = None                 # 11
     dressings: Optional[List[DressingItem]] = None             # 12
-    free_text_updates: Optional[FreeTextNotes] = None          # 13
+    free_text_updates: Optional[FreeTextUpdates] = None          # 13
 
     version: PreferenceVersion
 
