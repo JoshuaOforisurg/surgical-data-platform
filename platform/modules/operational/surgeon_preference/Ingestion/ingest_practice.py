@@ -14,15 +14,16 @@ Key Features:
 - No transformations or coercion
 """
 
+import logging
+import os
+from typing import List, Optional
+
 import pandas as pd
 import psycopg2
-from pydantic import BaseModel
-from typing import List, Optional
-import logging
 from dotenv import load_dotenv
-import os
-from psycopg2.pool import SimpleConnectionPool
 from psycopg2 import sql
+from psycopg2.pool import SimpleConnectionPool
+from pydantic import BaseModel
 
 # Configure logging
 logging.basicConfig(
