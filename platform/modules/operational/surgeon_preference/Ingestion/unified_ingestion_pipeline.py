@@ -3,119 +3,102 @@ import argparse
 from pathlib import Path
 from typing import Type, Any
 
-# --- Import Extractors Safely (Matching exact casing) ---
 from extractors.extractor_interface import BaseExtractor
 from extractors.csv_extractor import CSVExtractor
-from extractors.json_extractor import JsonExtractor  # Casing fixed
-from extractors.pdf_extractor import PdfExtractor    # Casing fixed
-from extractors.txt_extractor import TXTExtractor    # Added missing import
+from extractors.json_extractor import JsonExtractor
+from extractors.pdf_extractor import PdfExtractor
+from extractors.txt_extractor import TXTExtractor
 
-# --- Import Normalisation, Quarantine, and Load Layers ---
-from normalization.normalization_layer import NormalisedPreferenceItem  # Added missing function import
+from normalization.normalization_layer import NormalisedPreferenceItem
+from normalization.lookup_table import DynamicMapper
+
 from quarantine.quarantine_handler import QuarantineHandler
 from loader.database_loader import PostgresLoader
 
 
-# --- extractor registry -----------------------------------------------------
-
-
 EXTRACTOR_REGISTRY: dict[str, Type[BaseExtractor]] = {
     ".csv": CSVExtractor,
-    ".json": JsonExtractor,  # FIXED: Matches import casing
-    ".txt": TXTExtractor,    # FIXED: Now imported at top
-    ".pdf": PdfExtractor,    # FIXED: Matches import casing
+    ".json": JsonExtractor,
+    ".txt": TXTExtractor,
+    ".pdf": PdfExtractor,
 }
 
 
-def get_extractor_for_source(source: str) -> BaseExtractor:
-    path = Path(source)
-    ext = path.suffix.lower()
+def get_extractor(source: str) -> BaseExtractor:
+    ext = Path(source).suffix.lower()
 
-    extractor_cls = EXTRACTOR_REGISTRY.get(ext)
-    if extractor_cls is None:
-        raise ValueError(f"No extractor registered for extension: {ext}")
+    if ext not in EXTRACTOR_REGISTRY:
+        raise ValueError(f"Unsupported file type: {ext}")
 
-    return extractor_cls(source)
+    return EXTRACTOR_REGISTRY[ext](source)
 
 
-# --- core ingestion function -----------------------------------------------
+from datetime import datetime
+
 
 def ingest_source(
-    source: str,
-    conn_string: str,
-    quarantine_dir: str = "quarantine",
-    batch_size: int = 500,
+        source: str,
+        conn_string: str,
+        target_table: str = "bronze_raw.surgeon_preference_items",  # Pass target table dynamically
+        quarantine_dir: str = "quarantine",
+        batch_size: int = 500,
 ) -> None:
-    """
-    End-to-end ingestion for a single source (file/API/etc.).
-    """
+    if not conn_string or conn_string.strip() == "":
+        raise ValueError("Invalid Postgres connection string")
+
     quarantine = QuarantineHandler(output_dir=quarantine_dir)
     loader = PostgresLoader(conn_string=conn_string, batch_size=batch_size)
 
-    # 1. Fallback variable initialization
-    meta: dict[str, Any] = {"status": "failed_during_extraction"}
+    # Initialize the dynamic database mapper
+    mapper = DynamicMapper(conn_string, target_table)
 
-    # 2. Enter the file-safe context block
-    with get_extractor_for_source(source) as extractor:
-        for raw in extractor.extract():
-            try:
-                # Normalise directly from the raw data dict
-                normalised = normalise_raw_item(raw)
+    meta: dict[str, Any] = {}
 
-                # load
-                loader.add(normalised.model_dump(), source_file=str(source))
+    try:
+        with get_extractor(source) as extractor:
+            for raw in extractor.extract():
+                try:
+                    # 1. DYNAMIC LOOKUP / TRANSFORM STEP
+                    transformed = mapper.transform_row(raw)
 
-            except Exception as e:
-                # anything that fails validation or normalisation is quarantined
-                quarantine.add(raw_row=raw, error=str(e), source=str(source))
+                    # 2. SYSTEM INJECTED FIELDS
 
-        # 3. Capture the real metadata if the loop completes without crashing
-        meta = extractor.metadata()
+                    transformed["source_file"] = str(source)
+                    transformed["ingested_at"] = datetime.now().isoformat()
 
-    # final flush safely happens after the file has closed
-    loader.flush()
-    loader.close()  # Handled connection cleanup gracefully
-    quarantine_path = quarantine.flush()
+                    # 3. VALIDATION STEP
+                    # Note: If your Pydantic model is strict, you can pass transformed fields directly
+                    validated = NormalisedPreferenceItem(**transformed)
 
-    print("Ingestion complete.")
-    print("Source metadata:", meta)
-    print("Quarantine file:", quarantine_path)
+                    # 4. LOAD STEP
+                    loader.add(
+                        validated.model_dump(),
+                        source_file=str(source),
+                    )
+                except Exception as e:
+                    quarantine.add(raw_row=raw, error=str(e), source=str(source))
 
+            meta = extractor.metadata()
 
-# --- CLI entrypoint --------------------------------------------------------
+        loader.close()
+        quarantine.flush()
+        print("Ingestion complete", meta)
+
+    except Exception as e:
+        loader.close()
+        raise RuntimeError(f"Ingestion pipeline failed: {e}")
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Unified ingestion pipeline")
-    parser.add_argument("source", help="Path to input file (csv/json/txt/pdf)")
-    parser.add_argument(
-        "--conn-string",
-        dest="conn_string",
-        default=os.getenv("PREF_PIPELINE_PG_CONN", ""),
-        help="Postgres connection string (or set PREF_PIPELINE_PG_CONN)",
-    )
-    parser.add_argument(
-        "--quarantine-dir",
-        dest="quarantine_dir",
-        default="quarantine",
-        help="Directory to write quarantine files",
-    )
-    parser.add_argument(
-        "--batch-size",
-        dest="batch_size",
-        type=int,
-        default=500,
-        help="Batch size for Postgres inserts",
-    )
+
+    parser = argparse.ArgumentParser()
+    parser.add_argument("source")
+    parser.add_argument("--conn-string", default=os.getenv(".env"))
 
     args = parser.parse_args()
-
-    if not args.conn_string:
-        raise SystemExit("Postgres connection string is required.")
 
     ingest_source(
         source=args.source,
         conn_string=args.conn_string,
-        quarantine_dir=args.quarantine_dir,
-        batch_size=args.batch_size,
     )
+

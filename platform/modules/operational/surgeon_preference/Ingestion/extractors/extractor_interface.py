@@ -1,4 +1,3 @@
-# extractors/base.py
 from abc import ABC, abstractmethod
 from typing import Dict, Generator, Any
 
