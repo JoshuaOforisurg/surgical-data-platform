@@ -120,6 +120,6 @@ SPECIAL_INSTRUCTIONS_POOL = [
     "Keep tourniquet pressure to a strict maximum of 250 mmHg.",
     "Surgeon requests infiltration of local anaesthetic at the end of the procedure.",
     "Ensure x-ray clearance is arranged and image intensifier is draped prior to incision.",
-    "Patient has documented allergy to penicillin. Double check alternative antibiotics.",
+    "If Patient has documented allergy to penicillin. Double check alternative antibiotics.",
     "Do not open implants until the joint surface sizing has been checked with trial components."
 ]

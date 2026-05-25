@@ -65,7 +65,7 @@ class PostgresLoader:
 
             sql = """
                 INSERT INTO bronze_raw.surgeon_preference_items
-                (surgeon_id, procedure_id, item_id, mandatory,
+                (id,surgeon_id, procedure_id, item_id, mandatory,
                  quantity, notes, source_file, ingested_at)
                 VALUES %s
             """

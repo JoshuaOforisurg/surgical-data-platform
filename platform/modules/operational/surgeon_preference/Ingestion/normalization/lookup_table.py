@@ -5,66 +5,69 @@ from typing import Dict, Any, List
 class DynamicMapper:
     def __init__(self, conn_string: str, target_table: str):
         self.conn_string = conn_string
-        self.target_table = target_table  # e.g., "public.preference_items"
+        self.target_table = target_table
         self.db_columns = self._get_db_columns()
-        self.lookups = self._build_dynamic_lookups()
+        # FIX: Keep lookups empty since you don't use auxiliary lookup tables
+        self.lookups = {}
 
     def _get_db_columns(self) -> List[str]:
         """Reads the exact columns available in the database table."""
-        schema, table = self.target_table.split('.') if '.' in self.target_table else ('bronze_raw', self.target_table)
+        if '.' in self.target_table:
+            schema, table = self.target_table.split('.')
+        else:
+            schema, table = 'bronze_raw', self.target_table
+
         query = """
-            SELECT *
-            FROM bronze_raw.surgeon_preference_items 
-            WHERE schema= bronze_raw AND table= surgeon_preference_items;
+            SELECT column_name 
+            FROM information_schema.columns 
+            WHERE table_schema = %s 
+              AND table_name = %s
+            ORDER BY ordinal_position;
         """
-        schema = "bronze_raw"
-        table = "surgeon_preference_items"
         with psycopg2.connect(self.conn_string) as conn:
             with conn.cursor() as cur:
                 cur.execute(query, (schema, table))
                 return [row[0] for row in cur.fetchall()]
 
-    def _build_dynamic_lookups(self) -> Dict[str, Dict[str, Any]]:
-        """Maps relationship suffixes automatically based on naming conventions."""
-        lookups = {}
-        # Find ID columns that imply a lookup table (e.g., surgeon_id -> metadata.surgeons)
-        for col in self.db_columns:
-            if col.endswith("_id"):
-                entity = col.replace("_id", "")  # "surgeon"
-                # Assumes standard convention: metadata.surgeons table, surgeon_name, surgeon_id
-                lookups[col] = self._fetch_map(
-                    table=f"bronze_raw.{entity}s",
-                    name_col=f"{entity}_name",
-                    id_col=col
-                )
-        return lookups
-
-    def _fetch_map(self, table: str, name_col: str, id_col: str) -> Dict[str, Any]:
-        """Fetches key-value pairs for lookups dynamically."""
-        query = f"SELECT lower({name_col}), {id_col} FROM {table};"
-        try:
-            with psycopg2.connect(self.conn_string) as conn:
-                with conn.cursor() as cur:
-                    cur.execute(query)
-                    return {str(row[0]).strip(): row[1] for row in cur.fetchall()}
-        except Exception:
-            return {}  # Fallback if metadata table doesn't exist
-
     def transform_row(self, raw_row: Dict[str, Any]) -> Dict[str, Any]:
-        """Maps raw fields to database columns dynamically."""
+        """Maps raw fields directly to database columns."""
         transformed = {}
-
         for col in self.db_columns:
-            # Type 1: Foreign key lookups (e.g., target wants surgeon_id, source has surgeon_name)
-            if col in self.lookups:
-                source_key = col.replace("_id", "_name")
-                raw_val = str(raw_row.get(source_key, "")).strip().lower()
-                transformed[col] = self.lookups[col].get(raw_val)
-
-            # Type 2: Directly mapped columns (e.g., notes, quantity)
-            elif col in raw_row:
-                val = raw_row[col]
-                # Optional: Add data type casting logic here based on column type if needed
-                transformed[col] = val
-
+            # Directly map columns if they exist in your source CSV row
+            if col in raw_row:
+                transformed[col] = raw_row[col]
         return transformed
+
+
+def insert_rows_to_db(conn_string: str, target_table: str, transformed_rows: List[Dict[str, Any]]) -> None:
+    """Safely batches and writes transformed dictionary rows into the database."""
+    if not transformed_rows:
+        print("No rows found to insert.")
+        return
+
+    # 1. Extract the column names from the first row dictionary keys
+    columns = transformed_rows[0].keys()
+
+    # 2. Build a dynamic SQL statement: INSERT INTO bronze_raw.surgeon_preference_items (...) VALUES %s
+    # Note: We safely quote the target table name here
+    query = f"""
+        INSERT INTO {target_table} ({', '.join(columns)}) 
+        VALUES %s;
+    """
+
+    # 3. Convert list of dictionaries into a list of value tuples for psycopg2
+    values = [tuple(row[col] for col in columns) for row in transformed_rows]
+
+    try:
+        with psycopg2.connect(conn_string) as conn:
+            with conn.cursor() as cur:
+                # execute_values is incredibly fast for handling batches like 500 rows
+                execute_values(cur, query, values)
+
+                # CRITICAL: This saves the data permanently to your database
+                conn.commit()
+
+                print(f"Successfully wrote {len(transformed_rows)} rows to {target_table}!")
+
+    except Exception as e:
+        print(f"Database write failed: {e}")

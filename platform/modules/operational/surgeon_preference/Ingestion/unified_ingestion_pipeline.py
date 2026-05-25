@@ -1,104 +1,102 @@
-import os
+import csv
+import json
 import argparse
-from pathlib import Path
-from typing import Type, Any
-
-from extractors.extractor_interface import BaseExtractor
-from extractors.csv_extractor import CSVExtractor
-from extractors.json_extractor import JsonExtractor
-from extractors.pdf_extractor import PdfExtractor
-from extractors.txt_extractor import TXTExtractor
-
-from normalization.normalization_layer import NormalisedPreferenceItem
-from normalization.lookup_table import DynamicMapper
-
-from quarantine.quarantine_handler import QuarantineHandler
-from loader.database_loader import PostgresLoader
+from datetime import datetime, UTC
+import psycopg2
+from psycopg2.extras import execute_values
 
 
-EXTRACTOR_REGISTRY: dict[str, Type[BaseExtractor]] = {
-    ".csv": CSVExtractor,
-    ".json": JsonExtractor,
-    ".txt": TXTExtractor,
-    ".pdf": PdfExtractor,
-}
+def get_queued_files(conn_string: str) -> list:
+    """Queries the ledger for any raw landing files awaiting processing."""
+    query = """
+        SELECT file_id, file_name, file_format, storage_path 
+        FROM bronze_raw.unified_file_ingestion_ledger
+        WHERE status = 'queued'
+        ORDER BY created_at ASC;
+    """
+    with psycopg2.connect(conn_string) as conn:
+        with conn.cursor() as cur:
+            cur.execute(query)
+            return cur.fetchall()
 
 
-def get_extractor(source: str) -> BaseExtractor:
-    ext = Path(source).suffix.lower()
+def update_ledger_status(conn_string: str, file_id: str, status: str, error_message: str = None) -> None:
+    """Updates the file lifecycle status tracking inside the database ledger."""
+    query = """
+        UPDATE bronze_raw.unified_file_ingestion_ledger
+        SET status = %s, extraction_error = %s, updated_at = CURRENT_TIMESTAMP
+        WHERE file_id = %s;
+    """
+    with psycopg2.connect(conn_string) as conn:
+        with conn.cursor() as cur:
+            cur.execute(query, (status, error_message, file_id))
+            conn.commit()
 
-    if ext not in EXTRACTOR_REGISTRY:
-        raise ValueError(f"Unsupported file type: {ext}")
 
-    return EXTRACTOR_REGISTRY[ext](source)
+def process_csv_file(storage_path: str, file_name: str, conn_string: str) -> None:
+    """Reads rows from the raw file storage path and dumps them as JSONB records."""
+    records_to_insert = []
+
+    with open(storage_path, mode='r', encoding='utf-8-sig') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            # Strip whitespace out of data cells but preserve original structure
+            clean_row = {str(k).strip(): (str(v).strip() if v is not None else None) for k, v in row.items()}
+            raw_payload = json.dumps(clean_row)
+            records_to_insert.append((raw_payload, file_name))
+
+    if not records_to_insert:
+        print(f" -> [INFO] CSV file {file_name} was empty. Skipping database entry.")
+        return
+
+    # Bulk insert raw rows into our flexible JSON target table
+    insert_query = """
+        INSERT INTO bronze_raw.surgeon_preference_items (raw_payload, source_file)
+        VALUES %s;
+    """
+    with psycopg2.connect(conn_string) as conn:
+        with conn.cursor() as cur:
+            execute_values(cur, insert_query, records_to_insert)
+            conn.commit()
+            print(f" -> [SUCCESS] Appended {len(records_to_insert)} raw rows to table.")
 
 
-from datetime import datetime
+def run_processing_pipeline(conn_string: str) -> None:
+    """Orchestrates loop cycles across all unprocessed files inside the ledger."""
+    queued_files = get_queued_files(conn_string)
 
+    if not queued_files:
+        print(f"[{datetime.now(UTC).strftime('%H:%M:%S')}] No pending queued files found in ledger.")
+        return
 
-def ingest_source(
-        source: str,
-        conn_string: str,
-        target_table: str = "bronze_raw.surgeon_preference_items",  # Pass target table dynamically
-        quarantine_dir: str = "quarantine",
-        batch_size: int = 500,
-) -> None:
-    if not conn_string or conn_string.strip() == "":
-        raise ValueError("Invalid Postgres connection string")
+    print(f"Found {len(queued_files)} file(s) awaiting transformation processing...\n")
 
-    quarantine = QuarantineHandler(output_dir=quarantine_dir)
-    loader = PostgresLoader(conn_string=conn_string, batch_size=batch_size)
+    for file_id, file_name, file_format, storage_path in queued_files:
+        print(f"Processing File [{file_id}]: {file_name} ({file_format.upper()})")
 
-    # Initialize the dynamic database mapper
-    mapper = DynamicMapper(conn_string, target_table)
+        # 1. Flip file status to processing to secure a thread lock
+        update_ledger_status(conn_string, file_id, 'processing')
 
-    meta: dict[str, Any] = {}
+        try:
+            # 2. Extract and parse data fields based on format criteria
+            if file_format == 'csv':
+                process_csv_file(storage_path, file_name, conn_string)
+                # 3. Mark file fully handled
+                update_ledger_status(conn_string, file_id, 'completed')
+                print(f"Finished processing package tracking item successfully.\n")
+            else:
+                # Placeholder fallback path block for when we add .pdf or .txt parsers later
+                print(f" -> [WARNING] Parsing parser module for type '{file_format}' not integrated yet.")
+                update_ledger_status(conn_string, file_id, 'queued', "Parser not integrated yet")
 
-    try:
-        with get_extractor(source) as extractor:
-            for raw in extractor.extract():
-                try:
-                    # 1. DYNAMIC LOOKUP / TRANSFORM STEP
-                    transformed = mapper.transform_row(raw)
-
-                    # 2. SYSTEM INJECTED FIELDS
-
-                    transformed["source_file"] = str(source)
-                    transformed["ingested_at"] = datetime.now().isoformat()
-
-                    # 3. VALIDATION STEP
-                    # Note: If your Pydantic model is strict, you can pass transformed fields directly
-                    validated = NormalisedPreferenceItem(**transformed)
-
-                    # 4. LOAD STEP
-                    loader.add(
-                        validated.model_dump(),
-                        source_file=str(source),
-                    )
-                except Exception as e:
-                    quarantine.add(raw_row=raw, error=str(e), source=str(source))
-
-            meta = extractor.metadata()
-
-        loader.close()
-        quarantine.flush()
-        print("Ingestion complete", meta)
-
-    except Exception as e:
-        loader.close()
-        raise RuntimeError(f"Ingestion pipeline failed: {e}")
+        except Exception as e:
+            print(f" -> [CRITICAL ERROR] Failed parsing file contents: {e}\n")
+            update_ledger_status(conn_string, file_id, 'failed', str(e))
 
 
 if __name__ == "__main__":
-
-    parser = argparse.ArgumentParser()
-    parser.add_argument("source")
-    parser.add_argument("--conn-string", default=os.getenv(".env"))
-
+    parser = argparse.ArgumentParser(description="Automated Silver Parsing Execution Engine Worker Daemon CLI")
+    parser.add_argument("--conn-string", required=True, help="Database target connection registry string")
     args = parser.parse_args()
 
-    ingest_source(
-        source=args.source,
-        conn_string=args.conn_string,
-    )
-
+    run_processing_pipeline(conn_string=args.conn_string)

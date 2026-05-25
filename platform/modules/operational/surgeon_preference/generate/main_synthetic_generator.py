@@ -142,10 +142,10 @@ def generate_single_card(output_dir: str = "output", messy: bool = True):
     # MESSINESS SWITCHBOARD
     # -------------------------------------------------------------
     # OPTION A: Active pipeline corruption stage (Controlled by function call arguments)
-    # record_to_export = apply_messiness(card_record) if messy else card_record
+    record_to_export = apply_messiness(card_record) if messy else card_record
 
     # OPTION B: Hard bypass (Uncomment this line below later to force 100% clean data during scaling)
-    record_to_export = card_record
+    # record_to_export = card_record
     # -------------------------------------------------------------
 
     # 6. Export following the Hybrid Strategy
