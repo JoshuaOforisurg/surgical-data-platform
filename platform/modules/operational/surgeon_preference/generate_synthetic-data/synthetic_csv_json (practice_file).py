@@ -293,7 +293,7 @@ if __name__ == "__main__":
 
     # Save to CSV and JSON
     csv_path = os.path.join(DATA_DIR, "orthopaedic_preferences.csv")
-    json_path = os.path.join(DATA_DIR, "orthopaedic_preferences.json")
+    json_path = os.path.join(DATA_DIR, "orthopaedic_preferences_practice.json")
 
     try:
         df.to_csv(csv_path, index=False)

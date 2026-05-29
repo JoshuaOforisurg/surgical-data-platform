@@ -5,7 +5,7 @@ import random
 SURGEON_NAMES = [
     "Mr. James Gate","Miss Sarah Jenkins", "Mr. Alex Patel", "Prof. Claire Dubois",
     "Miss Elena Rostova", "Mr. Marcus Vance", "Mr. Kenji Tanaka", "Prof. Amara Okafor",
-    "Mr. David MacLeod", "Miss Fatima Al-Sayed"
+    "Mr. David MacLeod", "Miss Fatima Al-Sayed", "Mr Davidson"
 ]
 
 GLOVE_SIZES = ["6.0", "6.5", "7.0", "7.5", "8.0", "8.5", None]
@@ -18,7 +18,7 @@ SYSTEMS = ["streamlit", "excel", "epr"]
 # 3. Preparation & Theatre Environment
 POSITIONING_OPTIONS = [
     "Supine on standard table", "Lateral decubitus", "Prone with Wilson frame",
-    "Beach chair position", "Lithotomy position", "Fracture Table Positioning"
+    "Beach chair position", "Lithotomy position", "Fracture Table Positioning", "Trendelenburg Position"
 ]
 
 SKIN_PREPS = [
@@ -119,6 +119,7 @@ DRESSING_OPTIONS = [
 SPECIAL_INSTRUCTIONS_POOL = [
     "Keep tourniquet pressure to a strict maximum of 250 mmHg.",
     "Surgeon requests infiltration of local anaesthetic at the end of the procedure.",
+    "Surgeon does not use small swabs",
     "Ensure x-ray clearance is arranged and image intensifier is draped prior to incision.",
     "If Patient has documented allergy to penicillin. Double check alternative antibiotics.",
     "Do not open implants until the joint surface sizing has been checked with trial components."
