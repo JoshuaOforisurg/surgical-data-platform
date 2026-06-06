@@ -15,11 +15,10 @@ class Surgeon(BaseModel):
 
 
 class Procedure(BaseModel):
-    code: str
     name: str
-    subspecialty: Optional[str] = None
-    surgery_type: Optional[str] = None
-
+    subspecialty: str
+    diagnosis_codes: list[str]
+    procedure_codes: list[str]
 
 # -------------------------
 # Preference Card Sections (Ordered)
