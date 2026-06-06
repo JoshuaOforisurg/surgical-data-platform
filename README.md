@@ -1,12 +1,3 @@
-Below is a clean, upgraded README that:
-
-- Keeps your clinical context and existing modules  
-- Adds local + Azure cloud modes 
-- Introduces a clear IaC layer  
-- Updates repo structure to include infrastructure  
-
-
-
 ---
 
 # Surgical Data Platform
