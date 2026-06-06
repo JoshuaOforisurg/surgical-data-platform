@@ -3,7 +3,7 @@ import datetime
 from pathlib import Path
 from typing import Any, Dict, Generator, Optional
 
-from extractors.extractor_interface import BaseExtractor
+from extractor_interface import BaseExtractor
 
 
 class CSVExtractor(BaseExtractor):

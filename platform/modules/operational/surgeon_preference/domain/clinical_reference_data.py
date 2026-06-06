@@ -265,44 +265,47 @@ def _normalise(text: str) -> str:
 # =========================================================
 # LOOKUP HELPERS
 # =========================================================
+# Updated segment for domain/clinical_reference_data.py
+import difflib
+
+def _is_fuzzy_match(str1: str, str2: str, threshold: float = 0.80) -> bool:
+    """Returns True if the similarity score between normalised strings is above the threshold."""
+    s1 = _normalise(str1)
+    s2 = _normalise(str2)
+    if s1 == s2:
+        return True
+    # Fast check for simple containment before doing heavy sequence matching
+    if s1 in s2 or s2 in s1:
+        return True
+    score = difflib.SequenceMatcher(None, s1, s2).ratio()
+    return score >= threshold
 
 def find_procedure_match(text: str) -> Optional[str]:
     if not text:
         return None
 
-    cleaned = _normalise(text)
-
+    # Check canonical name first
     for key, data in CLINICAL_PROCEDURE_PROFILES.items():
-        if cleaned == _normalise(data["name"]):
+        if _is_fuzzy_match(text, data["name"]):
             return key
 
+        # Fall back to aliases with typo resistance
         for alias in data.get("aliases", []):
-            if cleaned == _normalise(alias):
+            if _is_fuzzy_match(text, alias):
                 return key
 
     return None
-
 
 def find_instrument_system_match(text: str) -> Optional[str]:
     if not text:
         return None
 
-    cleaned = _normalise(text)
-
     for key, data in CLINICAL_INSTRUMENT_SYSTEMS.items():
-        if cleaned == _normalise(data["name"]):
+        if _is_fuzzy_match(text, data["name"]):
             return key
 
         for alias in data.get("aliases", []):
-            if cleaned == _normalise(alias):
+            if _is_fuzzy_match(text, alias):
                 return key
 
     return None
-
-
-def get_procedure_profile(procedure_id: str) -> Optional[dict]:
-    return CLINICAL_PROCEDURE_PROFILES.get(procedure_id)
-
-
-def get_instrument_system_profile(system_id: str) -> Optional[dict]:
-    return CLINICAL_INSTRUMENT_SYSTEMS.get(system_id)

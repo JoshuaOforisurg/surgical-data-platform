@@ -40,8 +40,14 @@ def process_csv_file(storage_path: str, file_name: str, conn_string: str) -> Non
     with open(storage_path, mode='r', encoding='utf-8-sig') as f:
         reader = csv.DictReader(f)
         for row in reader:
-            # Strip whitespace out of data cells but preserve original structure
-            clean_row = {str(k).strip(): (str(v).strip() if v is not None else None) for k, v in row.items()}
+            # FIX: Prevent crash if an empty row or None keys creep into dirty CSV entries
+            if not row:
+                continue
+            clean_row = {
+                str(k).strip(): (str(v).strip() if v is not None else None)
+                for k, v in row.items()
+                if k is not None
+            }
             raw_payload = json.dumps(clean_row)
             records_to_insert.append((raw_payload, file_name))
 
@@ -49,7 +55,6 @@ def process_csv_file(storage_path: str, file_name: str, conn_string: str) -> Non
         print(f" -> [INFO] CSV file {file_name} was empty. Skipping database entry.")
         return
 
-    # Bulk insert raw rows into our flexible JSON target table
     insert_query = """
         INSERT INTO bronze_raw.surgeon_preference_items (raw_payload, source_file)
         VALUES %s;
@@ -85,13 +90,15 @@ def run_processing_pipeline(conn_string: str) -> None:
                 update_ledger_status(conn_string, file_id, 'completed')
                 print(f"Finished processing package tracking item successfully.\n")
             else:
-                # Placeholder fallback path block for when we add .pdf or .txt parsers later
                 print(f" -> [WARNING] Parsing parser module for type '{file_format}' not integrated yet.")
-                update_ledger_status(conn_string, file_id, 'queued', "Parser not integrated yet")
+                update_ledger_status(conn_string, file_id, 'failed', "Parser not integrated yet")
 
         except Exception as e:
+            # FIX: Safe row recovery log. The current file is marked as failed,
+            # but the loop continues immediately to process the next file in queue.
             print(f" -> [CRITICAL ERROR] Failed parsing file contents: {e}\n")
             update_ledger_status(conn_string, file_id, 'failed', str(e))
+            continue
 
 
 if __name__ == "__main__":
