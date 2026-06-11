@@ -1,0 +1,42 @@
+services:
+  surgeon_pipeline:
+    build: .
+    container_name: surgeon_preference_pipeline
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - .env
+    command: python main_orchestrator.py
+    # REMOVED: restart unless-stopped to prevent the pipeline from looping infinitely
+
+  streamlit_app:
+    build: .
+    container_name: surgeon_streamlit_ui
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - .env
+    ports:
+      - "8501:8501"
+    command: streamlit run app.py --server.address=0.0.0.0
+    depends_on:
+      minio:
+        condition: service_started
+      surgeon_pipeline:
+        condition: service_completed_successfully # UI waits until the data is fully cooked
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    env_file:
+      - .env
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+
+volumes:
+  minio_data:
