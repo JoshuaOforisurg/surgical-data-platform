@@ -1,10 +1,11 @@
-import json
 import pandas as pd
 import streamlit as st
 
 from streamlit_renderers.preference_card import build_preference_card
-# 1. Update this to import our dynamic factory function instead of MinIOClient
 from streamlit_services.streamlit_service import get_storage_client
+
+
+GOLD_OPERATIONAL_KEY = "gold/operational/latest/gold_operational_preference_cards.csv"
 
 # ----------------------------
 # APP CONFIG
@@ -13,33 +14,15 @@ st.set_page_config(page_title="Surgical Data Platform", layout="wide")
 st.title("Surgical Preference Platform")
 
 # ----------------------------
-# INIT STORAGE CLIENT (AUTOMATIC SWITCHER)
-# ----------------------------
-# 2. This now automatically spins up MinIO locally OR Azure in the cloud
-storage = get_storage_client()
-
-# ----------------------------
-# LOAD GOLD DATA (SAFE)
+# LOAD OPERATIONAL GOLD DATA (SAFE)
 # ----------------------------
 @st.cache_data(ttl=60)
 def load_gold_data():
     try:
-        # 3. This now safely returns a clean list of file path strings
-        objects = storage.list_objects("gold/")
-
-        if not objects:
-            return None
-
-        # 4. Sort alphabetically/chronologically by filename to get the latest pipeline run
-        objects = sorted(objects, reverse=True)
-
-        # 5. 'key' is now just a plain string path, no dictionary indexing needed!
-        key = objects[0]
-
+        storage = get_storage_client()
         local_path = "/tmp/gold.csv"
-        storage.download_file(key, local_path)
+        storage.download_file(GOLD_OPERATIONAL_KEY, local_path)
 
-        # CSV ONLY (simplify + stabilise)
         return pd.read_csv(local_path)
 
     except Exception as e:
@@ -53,7 +36,7 @@ def load_gold_data():
 df = load_gold_data()
 
 if df is None or df.empty:
-    st.warning("No Gold data found. Run pipeline first.")
+    st.warning("No Gold data found in MinIO. Run pipeline first.")
     st.stop()
 
 # ----------------------------
@@ -70,9 +53,17 @@ st.success("Gold data loaded")
 
 surgeons = df["surgeon_name"].dropna().unique().tolist()
 selected_surgeon = st.selectbox("Select Surgeon", surgeons)
+selected_procedure = None
+
+surgeon_df = df[df["surgeon_name"] == selected_surgeon]
+if "procedure" in surgeon_df.columns:
+    procedures = surgeon_df["procedure"].dropna().unique().tolist()
+    if procedures:
+        selected_procedure = st.selectbox("Select Procedure", ["All procedures"] + procedures)
 
 if st.button("Generate Preference Card"):
-    card = build_preference_card(df, selected_surgeon)
+    procedure_filter = None if selected_procedure == "All procedures" else selected_procedure
+    card = build_preference_card(df, selected_surgeon, procedure_filter)
 
     if not card:
         st.warning("No data found for surgeon")
@@ -88,10 +79,16 @@ if st.button("Generate Preference Card"):
             st.markdown(
                 f"""
 ### {p.get('procedure', 'Unknown')}
+- **Procedure ID:** {p.get('procedure_id', 'N/A')}
+- **OPCS code:** {p.get('opcs_code', 'N/A')}
+- **Readiness:** {p.get('readiness_status', 'N/A')}
+- **Instrument system:** {p.get('instrument_system', 'N/A')}
 - **Implant system:** {p.get('implant_system', 'N/A')}
-- **Approach:** {p.get('approach', 'N/A')}
 - **Instrument set:** {p.get('instrument_set', 'N/A')}
-- **Laterality:** {p.get('laterality', 'N/A')}
-- **Priority:** {p.get('priority_level', 'N/A')}
+- **Confidence:** {p.get('confidence', 'N/A')}
+- **Positioning:** {p.get('positioning', 'N/A')}
+- **Anaesthetic:** {p.get('anaesthetic_notes', 'N/A')}
+- **Skin prep:** {p.get('skin_prep', 'N/A')}
+- **Special instructions:** {p.get('special_instructions', 'N/A')}
 """
             )

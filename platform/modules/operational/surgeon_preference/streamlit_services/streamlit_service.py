@@ -3,7 +3,11 @@ import time
 from abc import ABC, abstractmethod
 import boto3
 from botocore.client import Config
+from dotenv import load_dotenv, find_dotenv
 from azure.storage.blob import BlobServiceClient
+
+
+load_dotenv(find_dotenv())
 
 
 # 1. Abstract Base Class (The Interface)
@@ -16,6 +20,11 @@ class StorageClient(ABC):
     @abstractmethod
     def download_file(self, key: str, local_path: str) -> None:
         """Downloads a file to the local system."""
+        pass
+
+    @abstractmethod
+    def get_text(self, key: str) -> str:
+        """Reads a text object from storage."""
         pass
 
 
@@ -67,6 +76,10 @@ class MinIOClient(StorageClient):
     def download_file(self, key: str, local_path: str) -> None:
         self.client.download_file(self.bucket, key, local_path)
 
+    def get_text(self, key: str) -> str:
+        resp = self.client.get_object(Bucket=self.bucket, Key=key)
+        return resp["Body"].read().decode("utf-8")
+
 
 # 3. Azure Production Implementation
 class AzureBlobStorageClient(StorageClient):
@@ -89,6 +102,10 @@ class AzureBlobStorageClient(StorageClient):
         blob_client = self.container_client.get_blob_client(key)
         with open(local_path, "wb") as download_file:
             download_file.write(blob_client.download_blob().readall())
+
+    def get_text(self, key: str) -> str:
+        blob_client = self.container_client.get_blob_client(key)
+        return blob_client.download_blob().readall().decode("utf-8")
 
 
 # 4. Factory Function (The Magic Switcher)
