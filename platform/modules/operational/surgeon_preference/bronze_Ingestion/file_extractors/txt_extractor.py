@@ -2,7 +2,7 @@ from pathlib import Path
 from typing import Any, Dict, Generator, Optional
 import datetime
 
-from extractor_interface import BaseExtractor
+from bronze_Ingestion.file_extractors.extractor_interface import BaseExtractor
 
 
 class TXTExtractor(BaseExtractor):

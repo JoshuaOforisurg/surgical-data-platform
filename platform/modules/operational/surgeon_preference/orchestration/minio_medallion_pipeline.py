@@ -1,0 +1,248 @@
+from __future__ import annotations
+
+import csv
+import io
+import json
+import logging
+import mimetypes
+from datetime import UTC, datetime
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from typing import Any, Dict, Iterable, List
+
+from bronze_Ingestion.catalog import BronzeCatalogRepository
+from config.settings import PipelineSettings
+from gold_cleaned.clinical_analytics import ClinicalGoldAnalytics
+from gold_cleaned.operational_preference_card import OperationalPreferenceGoldBuilder
+from silver_transform.silver_a.file_format_reader import FileReader
+from silver_transform.silver_a.silver_a_transformer import SilverTransformer
+from silver_transform.silver_b.silver_b_batch_enricher import SilverBBatchEnricher
+from storage.object_store import ObjectStoreClient, sha256_file
+
+
+LOGGER = logging.getLogger(__name__)
+
+
+class MinIOMedallionPipeline:
+    def __init__(self, settings: PipelineSettings):
+        self.settings = settings
+        self.object_store = ObjectStoreClient(settings.minio)
+        self.catalog = BronzeCatalogRepository(settings.postgres)
+        self.silver_a = SilverTransformer()
+        self.silver_b = SilverBBatchEnricher(log_enabled=True)
+        self.operational_gold = OperationalPreferenceGoldBuilder()
+        self.analytics_gold = ClinicalGoldAnalytics()
+
+    def run(self, source_path: Path) -> Dict[str, Any]:
+        run_id = datetime.now(UTC).strftime("run_%Y%m%d_%H%M%S")
+        source_path = Path(source_path)
+        LOGGER.info("Starting surgeon preference pipeline run_id=%s source=%s", run_id, source_path)
+
+        self.object_store.wait_until_ready()
+        self.catalog.initialise()
+        self.catalog.bootstrap_iceberg_catalog(
+            warehouse_uri=f"s3://{self.settings.minio.bucket}/iceberg-warehouse"
+        )
+        self.catalog.start_run(run_id, str(source_path))
+
+        landed_files = self._land_source_files(source_path, run_id)
+        all_raw_records: list[dict[str, Any]] = []
+
+        try:
+            with TemporaryDirectory() as tmpdir:
+                tmpdir_path = Path(tmpdir)
+                for landed in landed_files:
+                    file_id = landed["file_id"]
+                    local_copy = tmpdir_path / landed["original_filename"]
+                    self.object_store.download_file(landed["object_key"], local_copy)
+                    records = self._extract_records(local_copy)
+                    self.catalog.write_records(file_id, run_id, records)
+                    self.catalog.update_file_status(file_id, "bronze_registered")
+                    all_raw_records.extend(records)
+
+            LOGGER.info("Bronze extraction complete records=%s", len(all_raw_records))
+
+            silver_a_records = self.silver_a.transform_records(all_raw_records)
+            silver_b_records = self.silver_b.process(silver_a_records)
+
+            operational = self.operational_gold.build_and_write(silver_b_records)
+            analytics_report = self.analytics_gold.full_report(silver_b_records)
+
+            gold_keys = self._publish_gold(run_id, operational["rows"], analytics_report)
+            self._publish_run_manifest(
+                run_id=run_id,
+                landed_files=landed_files,
+                records_processed=len(all_raw_records),
+                gold_keys=gold_keys,
+            )
+
+            self.catalog.complete_run(
+                run_id=run_id,
+                status="completed",
+                files_landed=len(landed_files),
+                records_processed=len(all_raw_records),
+                gold_operational_key=gold_keys["operational_latest_csv"],
+                gold_analytics_key=gold_keys["analytics_latest_json"],
+            )
+
+            LOGGER.info(
+                "Pipeline completed run_id=%s files=%s records=%s gold=%s",
+                run_id,
+                len(landed_files),
+                len(all_raw_records),
+                gold_keys["operational_latest_csv"],
+            )
+
+            return {
+                "run_id": run_id,
+                "files_landed": len(landed_files),
+                "records_processed": len(all_raw_records),
+                "gold_keys": gold_keys,
+            }
+
+        except Exception as exc:
+            LOGGER.exception("Pipeline failed run_id=%s", run_id)
+            self.catalog.complete_run(
+                run_id=run_id,
+                status="failed",
+                files_landed=len(landed_files),
+                records_processed=len(all_raw_records),
+                gold_operational_key=None,
+                gold_analytics_key=None,
+                error_message=str(exc),
+            )
+            raise
+
+    def _land_source_files(self, source_path: Path, run_id: str) -> List[Dict[str, Any]]:
+        files = self._source_files(source_path)
+        landed_files = []
+
+        for file_path in files:
+            checksum = sha256_file(file_path)
+            content_type = mimetypes.guess_type(file_path.name)[0] or "application/octet-stream"
+            object_key = (
+                f"{self.settings.minio.landing_prefix}/{run_id}/"
+                f"{datetime.now(UTC).strftime('%Y%m%d_%H%M%S_%f')}_{file_path.name}"
+            )
+            object_uri = self.object_store.upload_file(
+                file_path,
+                object_key,
+                content_type=content_type,
+                metadata={"checksum-sha256": checksum, "run-id": run_id},
+            )
+            metadata = {
+                "run_id": run_id,
+                "bucket": self.settings.minio.bucket,
+                "object_key": object_key,
+                "object_uri": object_uri,
+                "original_filename": file_path.name,
+                "file_extension": file_path.suffix.lower().lstrip(".") or "unknown",
+                "content_type": content_type,
+                "size_bytes": file_path.stat().st_size,
+                "checksum_sha256": checksum,
+            }
+            file_id = self.catalog.register_file(metadata)
+            landed = {**metadata, "file_id": file_id}
+            landed_files.append(landed)
+            LOGGER.info("Landed file name=%s key=%s", file_path.name, object_key)
+
+        return landed_files
+
+    def _source_files(self, source_path: Path) -> List[Path]:
+        if source_path.is_file():
+            return [source_path]
+        if source_path.is_dir():
+            return sorted(path for path in source_path.iterdir() if path.is_file())
+        raise FileNotFoundError(f"Source path does not exist: {source_path}")
+
+    def _extract_records(self, local_path: Path) -> List[Dict[str, Any]]:
+        if local_path.suffix.lower() == ".json":
+            return self._read_json_or_jsonl(local_path)
+
+        payload = FileReader.read_file(local_path)
+        content = payload.get("content")
+        if isinstance(content, list):
+            return [record for record in content if isinstance(record, dict)]
+        if isinstance(content, dict):
+            return [content]
+        return []
+
+    def _read_json_or_jsonl(self, local_path: Path) -> List[Dict[str, Any]]:
+        text = local_path.read_text(encoding="utf-8").strip()
+        if not text:
+            return []
+        try:
+            payload = json.loads(text)
+        except json.JSONDecodeError:
+            return [json.loads(line) for line in text.splitlines() if line.strip()]
+        if isinstance(payload, list):
+            return [record for record in payload if isinstance(record, dict)]
+        if isinstance(payload, dict):
+            return [payload]
+        return []
+
+    def _publish_gold(
+        self,
+        run_id: str,
+        operational_rows: List[Dict[str, Any]],
+        analytics_report: Dict[str, Any],
+    ) -> Dict[str, str]:
+        operational_csv = self._rows_to_csv(operational_rows)
+        operational_json = json.dumps(operational_rows, indent=2)
+        analytics_json = json.dumps(analytics_report, indent=2)
+
+        gold_prefix = self.settings.minio.gold_prefix
+        run_prefix = f"{gold_prefix}/operational/runs/{run_id}"
+        analytics_run_prefix = f"{gold_prefix}/analytics/runs/{run_id}"
+
+        keys = {
+            "operational_run_csv": f"{run_prefix}/gold_operational_preference_cards.csv",
+            "operational_run_json": f"{run_prefix}/gold_operational_preference_cards.json",
+            "analytics_run_json": f"{analytics_run_prefix}/gold_analytics_report.json",
+            "operational_latest_csv": f"{gold_prefix}/operational/latest/gold_operational_preference_cards.csv",
+            "operational_latest_json": f"{gold_prefix}/operational/latest/gold_operational_preference_cards.json",
+            "analytics_latest_json": f"{gold_prefix}/analytics/latest/gold_analytics_report.json",
+        }
+
+        self.object_store.put_text(keys["operational_run_csv"], operational_csv, "text/csv")
+        self.object_store.put_text(keys["operational_run_json"], operational_json, "application/json")
+        self.object_store.put_text(keys["analytics_run_json"], analytics_json, "application/json")
+        self.object_store.put_text(keys["operational_latest_csv"], operational_csv, "text/csv")
+        self.object_store.put_text(keys["operational_latest_json"], operational_json, "application/json")
+        self.object_store.put_text(keys["analytics_latest_json"], analytics_json, "application/json")
+
+        return keys
+
+    def _publish_run_manifest(
+        self,
+        run_id: str,
+        landed_files: List[Dict[str, Any]],
+        records_processed: int,
+        gold_keys: Dict[str, str],
+    ) -> None:
+        manifest = {
+            "run_id": run_id,
+            "created_at": datetime.now(UTC).isoformat(),
+            "landed_files": [
+                {
+                    "file_id": str(item["file_id"]),
+                    "object_key": item["object_key"],
+                    "checksum_sha256": item["checksum_sha256"],
+                    "size_bytes": item["size_bytes"],
+                }
+                for item in landed_files
+            ],
+            "records_processed": records_processed,
+            "gold_keys": gold_keys,
+        }
+        key = f"{self.settings.minio.bronze_prefix}/manifests/{run_id}.json"
+        self.object_store.put_text(key, json.dumps(manifest, indent=2), "application/json")
+
+    def _rows_to_csv(self, rows: List[Dict[str, Any]]) -> str:
+        if not rows:
+            return ""
+        buffer = io.StringIO()
+        writer = csv.DictWriter(buffer, fieldnames=list(rows[0].keys()))
+        writer.writeheader()
+        writer.writerows(rows)
+        return buffer.getvalue()

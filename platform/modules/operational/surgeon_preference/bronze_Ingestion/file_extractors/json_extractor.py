@@ -3,7 +3,7 @@ import datetime
 from pathlib import Path
 from typing import Any, Dict, Generator, Optional
 
-from extractor_interface import BaseExtractor
+from bronze_Ingestion.file_extractors.extractor_interface import BaseExtractor
 
 
 class JsonExtractor(BaseExtractor):

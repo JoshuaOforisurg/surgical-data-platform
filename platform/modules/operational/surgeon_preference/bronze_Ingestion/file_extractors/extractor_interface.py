@@ -42,8 +42,8 @@ class BaseExtractor(ABC):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        """Automatically calls close when leaving a 'with' block."""
         self.close()
+        return False  # This ensures errors bubble up instead of vanishing!
 
     def close(self) -> None:
         """

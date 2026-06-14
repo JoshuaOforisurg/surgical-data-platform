@@ -1,111 +1,132 @@
 import os
-import shutil
-import argparse
-from datetime import datetime, UTC
-from pathlib import Path
-from typing import List, Optional
-import psycopg2
+import logging
+import hashlib
+from datetime import datetime, timezone
+from typing import Optional, Dict, Any
 
-def ensure_local_storage_exists(directory_path: str) -> None:
-    """Creates the local raw landing zone directory if it does not exist yet."""
-    os.makedirs(directory_path, exist_ok=True)
+from minio import Minio
+from tenacity import retry, stop_after_attempt, wait_exponential
 
-def register_file_in_ledger(
-    conn_string: str,
-    file_name: str,
-    file_format: str,
-    storage_path: str,
-    file_size: int,
-    status: str = "queued"
-) -> None:
-    """Creates a permanent operational audit lineage trail record inside PostgreSQL."""
-    query = """
-        INSERT INTO bronze_raw.unified_file_ingestion_ledger
-            (file_name, file_format, storage_path, file_size_bytes, status)
-        VALUES (%s, %s, %s, %s, %s);
-    """
-    with psycopg2.connect(conn_string) as conn:
-        with conn.cursor() as cur:
-            cur.execute(query, (file_name, file_format, storage_path, file_size, status))
-            conn.commit()
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s"
+)
+logger = logging.getLogger(__name__)
 
-def ingest_file_to_local_lake(
-    source_file_path: str,
-    conn_string: str,
-    status: str = "queued"
+# Constants
+MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB
+
+
+def _calculate_local_sha256(file_path: str, chunk_size: int = 1024 * 1024) -> str:
+    """Calculates SHA256 checksum of a local file in chunks to optimize memory."""
+    sha = hashlib.sha256()
+    with open(file_path, "rb") as f:
+        while chunk := f.read(chunk_size):
+            sha.update(chunk)
+    return sha.hexdigest()
+
+
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=4, max=10),
+    retry_error_callback=lambda _: None  # Suppress retry errors and return None
+)
+def drop_to_landing_zone(
+        source_file_path: str,
+        minio_endpoint: str,
+        minio_access_key: str,
+        minio_secret_key: str,
+        minio_bucket: str = "surgeon_preference",
+        minio_landing_prefix: str = "landing/",
+        secure: bool = False,
+        metadata: Optional[Dict[str, str]] = None,
+        max_file_size: int = MAX_FILE_SIZE
 ) -> Optional[str]:
     """
-    Main execution engine mimicking cloud storage workflows on local disks.
-    Returns the destination file path if successful, otherwise None.
+    Upload a raw file into the MinIO landing zone with retry logic, validation,
+    and pre-calculated SHA256 metadata support to optimize Strategy B ingestion.
     """
-    if not os.path.exists(source_file_path):
-        print(f"[ERROR] Source file path does not exist: {source_file_path}")
+
+    # Validate source file
+    if not os.path.isfile(source_file_path):
+        logger.error("Source file does not exist: %s", source_file_path)
         return None
 
-    local_lake_dir = os.path.abspath("./data/raw_landing")
-    ensure_local_storage_exists(local_lake_dir)
-
-    file_name = os.path.basename(source_file_path)
-    file_extension = file_name.split('.')[-1].lower() if '.' in file_name else 'unknown'
-    file_size_bytes = os.path.getsize(source_file_path)
-
-    # FIX: Added microsecond resolution (%f) to prevent multiple files from overwriting each other
-    timestamp_prefix = datetime.now(UTC).strftime("%Y%m%d_%H%M%S_%f_")
-    destination_file_path = os.path.join(local_lake_dir, f"{timestamp_prefix}{file_name}")
+    # Validate file size
+    file_size = os.path.getsize(source_file_path)
+    if file_size > max_file_size:
+        logger.error(
+            "File '%s' exceeds maximum size of %d MB. Actual size: %d MB",
+            source_file_path,
+            max_file_size / (1024 * 1024),
+            file_size / (1024 * 1024)
+        )
+        return None
 
     try:
-        shutil.copy2(source_file_path, destination_file_path)
-        print(f"[SUCCESS] Physical file saved to file storage lake at: {destination_file_path}")
-
-        register_file_in_ledger(
-            conn_string=conn_string,
-            file_name=file_name,
-            file_format=file_extension,
-            storage_path=destination_file_path,
-            file_size=file_size_bytes,
-            status=status
+        # Create MinIO client
+        client = Minio(
+            endpoint=minio_endpoint,
+            access_key=minio_access_key,
+            secret_key=minio_secret_key,
+            secure=secure
         )
-        print(f"[SUCCESS] File ledger record logged into Postgres framework successfully.")
-        return destination_file_path
 
-    except Exception as e:
-        print(f"[ERROR] Local landing routine failed: {e}")
+        # Validate credentials (pre-flight check)
+        try:
+            client.list_buckets()
+        except Exception:
+            logger.error("Invalid MinIO credentials or endpoint.")
+            return None
+
+        # Create unique object name
+        file_name = os.path.basename(source_file_path)
+        # FIXED: Replaced deprecated UTC call with modern timezone structure
+        timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S_%f")
+        object_name = f"{minio_landing_prefix}{timestamp}_{file_name}"
+
+        # Determine content type
+        content_type = "application/octet-stream"  # Default binary
+        if file_name.endswith(('.json', '.csv', '.txt', '.xml')):
+            content_type = "text/plain"
+        elif file_name.endswith(('.jpg', '.jpeg', '.png', '.gif')):
+            content_type = "image/jpeg" if file_name.endswith(('.jpg', '.jpeg')) else "image/png"
+        elif file_name.endswith(('.pdf',)):
+            content_type = "application/pdf"
+
+        # Ensure bucket exists
+        if not client.bucket_exists(minio_bucket):
+            logger.info("Bucket '%s' does not exist. Creating bucket.", minio_bucket)
+            client.make_bucket(minio_bucket)
+            logger.info("Bucket '%s' created successfully.", minio_bucket)
+
+        # ------------------------------------------------------------
+        # STRATEGY B ENHANCEMENT: Pre-calculate SHA256 checksum
+        # ------------------------------------------------------------
+        upload_metadata = metadata.copy() if metadata else {}
+
+        # Calculate local file hash before pushing
+        logger.info("Calculating SHA256 hash for local file: %s", file_name)
+        file_hash = _calculate_local_sha256(source_file_path)
+
+        # Inject custom header standard recognized by modern S3 ecosystems
+        upload_metadata["checksum-sha256"] = file_hash
+
+        # Upload file (fput_object handles multipart chunking safely under the hood)
+        logger.info("Uploading file '%s' (%d MB) to MinIO...", file_name, file_size / (1024 * 1024))
+        client.fput_object(
+            bucket_name=minio_bucket,
+            object_name=object_name,
+            file_path=source_file_path,
+            content_type=content_type,
+            metadata=upload_metadata
+        )
+
+        uploaded_path = f"s3://{minio_bucket}/{object_name}"
+        logger.info("Successfully uploaded file to landing zone: %s", uploaded_path)
+        return uploaded_path
+
+    except Exception:
+        logger.exception("Failed to upload file '%s' to MinIO", source_file_path)
         return None
-
-def ingest_multiple_files(
-    source_paths: List[str],
-    conn_string: str,
-    status: str = "queued"
-) -> List[Optional[str]]:
-    results = []
-    for source_path in source_paths:
-        result = ingest_file_to_local_lake(
-            source_file_path=source_path,
-            conn_string=conn_string,
-            status=status
-        )
-        results.append(result)
-    return results
-
-def ingest_directory(
-    source_dir: str,
-    conn_string: str,
-    status: str = "queued"
-) -> List[Optional[str]]:
-    source_paths = [str(file) for file in Path(source_dir).glob("*") if file.is_file()]
-    return ingest_multiple_files(source_paths, conn_string, status)
-
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Local-to-Cloud Extensible Data Ingestion Framework")
-    parser.add_argument("--source", required=True, help="Path to raw file or directory to ingest")
-    parser.add_argument("--conn-string", required=True, help="Postgres ledger connection string")
-    parser.add_argument("--status", default="queued", help="Status to set for the ingested files")
-    args = parser.parse_args()
-
-    source_path = Path(args.source)
-    if source_path.is_file():
-        ingest_file_to_local_lake(str(source_path), args.conn_string, args.status)
-    elif source_path.is_dir():
-        ingest_directory(str(source_path), args.conn_string, args.status)
-    else:
-        print(f"[ERROR] Source path does not exist: {args.source}")
