@@ -2,7 +2,7 @@ import re
 from typing import Optional
 import os
 
-from surgeon_preference_enum import (
+from domain.surgeon_preference_enum import (
     SurgeonTitle,
     Anaesthetic,
     Speciality,

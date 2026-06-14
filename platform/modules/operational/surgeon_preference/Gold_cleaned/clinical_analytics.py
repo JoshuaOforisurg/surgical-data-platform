@@ -25,7 +25,11 @@ class ClinicalGoldAnalytics:
         surgeon_map = defaultdict(list)
 
         for r in records:
-            surgeon = r.get("surgeon", {}).get("full_name", "UNKNOWN")
+            surgeon = (
+                r.get("surgeon_name")
+                or r.get("surgeon", {}).get("full_name")
+                or "UNKNOWN"
+            )
             surgeon_map[surgeon].append(r)
 
         output = {}

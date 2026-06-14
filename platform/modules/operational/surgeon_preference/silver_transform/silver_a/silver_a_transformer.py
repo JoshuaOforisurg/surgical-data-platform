@@ -3,12 +3,8 @@ from typing import Dict, List, Any, Optional
 import json
 from datetime import datetime, UTC
 
-# Placeholder for your local import structure
+from config.paths import SILVER_A_DIR
 from silver_transform.silver_a.file_format_reader import FileReader
-# from config.paths import SILVER_A_DIR
-
-# Temporary fallbacks for demonstration if imports are missing
-SILVER_A_DIR = Path("./data/silver_a")
 
 
 def clean_text(v: Any, case_style: Optional[str] = None) -> Optional[str]:
@@ -52,6 +48,12 @@ class SilverTransformer:
             return d.get(key, default)
         return default
 
+    def nested_get(self, d: Any, key: str, nested_key: str = "description", default=None):
+        value = self.safe_get(d, key)
+        if isinstance(value, dict):
+            return value.get(nested_key, default)
+        return value if value is not None else default
+
     def normalise_content(self, content: Any) -> Dict[str, Any]:
         if content is None:
             return {}
@@ -78,10 +80,10 @@ class SilverTransformer:
     # Core transformation
     # -----------------------------
     def flatten_card(self, card: Dict[str, Any]) -> Dict[str, Any]:
-        global surgeon
         metadata = card.get("metadata", {}) or {}
         content_raw = card.get("content", {})
         content = self.normalise_content(content_raw)
+        surgeon: Dict[str, Any] = {}
 
         # Detect flat schema variations
         is_flat = any(
@@ -127,10 +129,32 @@ class SilverTransformer:
         special_instructions = content.get("special_instructions", {})
         notes_raw = special_instructions.get("notes") if isinstance(special_instructions, dict) else None
 
-        anaesthetic_notes = clean_text(self.safe_get(content, "anaesthetic_notes"))
-        positioning_description = clean_text(self.safe_get(content, "positioning_description"))
-        operating_theatre_description = clean_text(self.safe_get(content, "operating_theatre_description"))
-        skin_prep_description = clean_text(self.safe_get(content, "skin_prep_description"))
+        anaesthetic_notes = clean_text(
+            self.safe_get(content, "anaesthetic_notes")
+            or self.nested_get(content, "anaesthetic", "notes")
+        )
+        positioning_description = clean_text(
+            self.safe_get(content, "positioning_description")
+            or self.nested_get(content, "positioning")
+        )
+        operating_theatre_description = clean_text(
+            self.safe_get(content, "operating_theatre_description")
+            or self.nested_get(content, "operating_theatre")
+        )
+        skin_prep_description = clean_text(
+            self.safe_get(content, "skin_prep_description")
+            or self.safe_get(content, "skin_prep_desc")
+            or self.nested_get(content, "skin_prep")
+        )
+        instrument_system = clean_text(
+            self.safe_get(content, "instrument_system")
+            or self.safe_get(content, "instrument_set")
+            or self.safe_get(content, "system")
+        )
+        implant_system = clean_text(
+            self.safe_get(content, "implant_system")
+            or self.safe_get(content, "implant_set")
+        )
 
         return {
             "file_name": metadata.get("file_name", ""),
@@ -153,6 +177,8 @@ class SilverTransformer:
             "positioning_description": positioning_description,
             "operating_theatre_description": operating_theatre_description,
             "skin_prep_description": skin_prep_description,
+            "instrument_system": instrument_system,
+            "implant_system": implant_system,
 
             # Structural arrays kept intact as raw strings for Silver-B parsing
             "instruments": json.dumps(content.get("instruments", [])),
@@ -169,7 +195,7 @@ class SilverTransformer:
             "source_system": clean_text(content.get("source_system")),
 
             "processed_at": datetime.now(UTC).isoformat(),
-            "pipeline_version": "silver_a_v3",
+            "pipeline_version": "silver_a_v4",
         }
 
     # -----------------------------

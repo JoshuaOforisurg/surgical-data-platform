@@ -17,6 +17,7 @@ from silver_transform.silver_b.silver_b_batch_enricher import SilverBBatchEnrich
 # GOLD
 # -------------------------
 from gold_cleaned.clinical_analytics import ClinicalGoldAnalytics
+from gold_cleaned.operational_preference_card import OperationalPreferenceGoldBuilder
 
 from config.paths import GOLD_DIR
 
@@ -24,7 +25,8 @@ class SurgicalDataPipeline:
     def __init__(self):
         self.silver_a = SilverTransformer()
         self.silver_b = SilverBBatchEnricher()
-        self.gold = ClinicalGoldAnalytics()
+        self.operational_gold = OperationalPreferenceGoldBuilder()
+        self.analytics_gold = ClinicalGoldAnalytics()
 
     # -----------------------------------------------------
     # BRONZE → SILVER-A
@@ -42,9 +44,18 @@ class SurgicalDataPipeline:
     # -----------------------------------------------------
     # SILVER-B → GOLD
     # -----------------------------------------------------
-    def run_gold(self, silver_b_data: List[Dict[str, Any]]) -> Dict[str, Any]:
-        print("[PIPELINE] Running Gold analytics...")
-        return self.gold.full_report(silver_b_data)
+    def run_operational_gold(self, silver_b_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+        print("[PIPELINE] Running operational Gold preference cards...")
+        return self.operational_gold.build_and_write(silver_b_data)
+
+    def run_analytics_gold(self, silver_b_data: List[Dict[str, Any]]) -> Dict[str, Any]:
+        print("[PIPELINE] Running analytical Gold report...")
+        report = self.analytics_gold.full_report(silver_b_data)
+        output_file = GOLD_DIR / "gold_analytics_report.json"
+        output_file.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_file, "w", encoding="utf-8") as f:
+            json.dump(report, f, indent=2)
+        return {"report": report, "path": output_file}
 
     # -----------------------------------------------------
     # FULL PIPELINE EXECUTION
@@ -58,8 +69,11 @@ class SurgicalDataPipeline:
         # Step 2: Silver-B
         silver_b_data = self.run_silver_b(silver_a_data)
 
-        # Step 3: Gold Analytics
-        gold_report = self.run_gold(silver_b_data)
+        # Step 3: Operational Gold for frontline Streamlit
+        operational_gold = self.run_operational_gold(silver_b_data)
+
+        # Step 4: Analytical Gold snapshot for future cost/usage work
+        analytics_gold = self.run_analytics_gold(silver_b_data)
 
         end_time = datetime.now(UTC)
         duration = (end_time - start_time).total_seconds()
@@ -75,7 +89,8 @@ class SurgicalDataPipeline:
             },
             "silver_a_output": silver_a_data,
             "silver_b_output": silver_b_data,
-            "gold_report": gold_report,
+            "gold_operational": operational_gold,
+            "gold_analytics": analytics_gold,
         }
 
 # =========================================================
@@ -100,11 +115,11 @@ if __name__ == "__main__":
     print("\nPIPELINE COMPLETE")
     print(result["pipeline_metadata"])
 
-    # Save the result to a file (optional)
-    output_file = GOLD_DIR / "clinical_report.json"
+    # Save the full run metadata to a file (optional)
+    output_file = GOLD_DIR / "pipeline_run.json"
     output_file.parent.mkdir(parents=True, exist_ok=True)  # Ensure directory exists
 
-    with open(output_file, "w") as f:
+    with open(output_file, "w", encoding="utf-8") as f:
         json.dump(result, f, indent=2)
 
     print(f"\nPipeline result saved to: {output_file}")
