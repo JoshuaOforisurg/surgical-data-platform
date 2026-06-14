@@ -1,0 +1,15 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+.env
+.venv/
+venv/
+
+data/
+data_lake/
+generate_synthetic_data/output/
+silver_transform/silver_a/data/
+
+*.log

@@ -6,8 +6,15 @@ services:
       - ./data:/app/data
     env_file:
       - .env
+    environment:
+      DB_HOST: postgres
+      MINIO_ENDPOINT: http://minio:9000
     command: python main_orchestrator.py
-    # REMOVED: restart unless-stopped to prevent the pipeline from looping infinitely
+    depends_on:
+      minio:
+        condition: service_started
+      postgres:
+        condition: service_healthy
 
   streamlit_app:
     build: .
@@ -16,27 +23,51 @@ services:
       - ./data:/app/data
     env_file:
       - .env
+    environment:
+      DB_HOST: postgres
+      MINIO_ENDPOINT: http://minio:9000
     ports:
       - "8501:8501"
     command: streamlit run app.py --server.address=0.0.0.0
     depends_on:
       minio:
         condition: service_started
+      postgres:
+        condition: service_healthy
       surgeon_pipeline:
-        condition: service_completed_successfully # UI waits until the data is fully cooked
+        condition: service_completed_successfully
     restart: unless-stopped
 
   minio:
     image: minio/minio:latest
     container_name: minio
     ports:
-      - "127.0.0.1:9000:9000"
-      - "127.0.0.1:9001:9001"
+      # FIXED: Removed '127.0.0.1:' prefixing to open up all interface meshes safely
+      - "9000:9000"
+      - "9001:9001"
     env_file:
       - .env
     command: server /data --console-address ":9001"
     volumes:
       - minio_data:/data
 
+  postgres:
+    image: postgres:16
+    container_name: surgeon_preference_postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
 volumes:
   minio_data:
+  postgres_data:
