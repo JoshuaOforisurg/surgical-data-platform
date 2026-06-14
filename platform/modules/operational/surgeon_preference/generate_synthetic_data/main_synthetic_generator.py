@@ -11,7 +11,7 @@ from domain.surgeon_preference_model import (
 )
 
 # Exporters
-from file_exporters import (
+from generate_synthetic_data.file_exporters import (
     export_to_csv,
     export_to_txt,
     export_to_json,
@@ -19,13 +19,13 @@ from file_exporters import (
 )
 
 # Clinical mapping logic
-from clinical_mapping_logic import generate_clinical_mapping
+from generate_synthetic_data.clinical_mapping_logic import generate_clinical_mapping
 
 # Metadata
-import mock_data
+from generate_synthetic_data import mock_data
 
 # Messiness
-from messiness_generator import apply_messiness
+from generate_synthetic_data.messiness_generator import apply_messiness
 
 
 # ============================================================

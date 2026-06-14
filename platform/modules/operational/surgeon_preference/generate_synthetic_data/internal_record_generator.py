@@ -2,7 +2,7 @@ import random
 from datetime import datetime
 from faker import Faker
 
-from generate.clinical_mapping_logic import generate_clinical_mapping
+from generate_synthetic_data.clinical_mapping_logic import generate_clinical_mapping
 
 fake = Faker()
 
