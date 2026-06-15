@@ -145,21 +145,65 @@ PROCEDURES = {
 CLINICAL_PREFERENCE_PROFILES = {
     # --- Joint Replacement ---
     "Total Knee Replacement": {
-        "positioning": "Supine on standard table with foot support",
+        "positioning": "Supine on standard table with foot bolster",
         "anaesthetic": "Spinal Anaesthesia with 0.5% Heavy Bupivacaine",
         "skin_prep": "ChloraPrep 2% chlorhexidine gluconate",
         "drape_pack": "Total Knee Arthroplasty Drape Pack",
+        "draping_order": [
+            "Water Repellent",
+            "Approach Drape",
+            "Brown Stockinette (Unisurge, 15cm x 1.5m, REF: F825195)",
+            "Plastic U drape",
+            "Reinforced Split Sheet (200x260cm)",
+            "Extremity Drape",
+            "Optape x 1 (uses 2 around the glove on the ankle)",
+            "Reinforced Adhesive Edge Drape (150x240cm)",
+            "Reinforced Adhesive Edge Drape (150x240cm) x 2 (For the side and the extension for the bottom)",
+        ],
+        "consumables": [
+            "Size 8.5 Surgical Gloves",
+            "Gauze Swabs 10x10",
+            "Gauze Swabs 5x5",
+            "Irrigation Fluid 0.9% Saline 3L",
+            "Suction Tubing",
+            "Light Handle Covers",
+            "Skin Marker Pen",
+            "Chlorhexidine 2% Applicator",
+            "Betadine Prep Solution",
+            "Saw Blade (Conmed) x 1 Ref#5071-201",
+            "Sharps Pad",
+            "Scalpel Blade #20",
+            "Sterile Gown",
+            "Suction Yankauer Tip",
+            "Diathermy Pencil",
+            "Diathermy Tip",
+            "Syringe 10ml",
+            "Syringe 20ml",
+            "Syringe 50ml",
+            "Bladder Syringe",
+            "Eschmark Bandage",
+        ],
         "equipment": [
             "Stryker SmartPump Tourniquet System",
-            "Stryker System 8 Power Tool Kit",
+            "Suction Machine",
+            "Cement Vacuum Foot Pump",
+            "Diathermy Machine"
         ],
-        "instrument_system": "Zimmer Biomet NexGen Complete Instrumentation",
+        "instrument_system": "JOURNEY II BCS Knee System",
         "instruments": [
             {"name": "JOURNEY II BCS Knee System", "quantity": 7},
             {"name": "Large Orthopaedic Set", "quantity": 1},
+            {"name": "Conmed PowerTools", "quantity": 1},
+            {"name": "Splash Bowl", "quantity": 1},
+            {"name": "Jug", "quantity": 1},
+            {"name": "Heraeus Cement Gun", "quantity": 1}
         ],
-        "implant_system": "Zimmer Biomet NexGen TKA System",
-        "implants": ["Femoral Component", "Tibial Baseplate", "Polyethylene Insert"],
+        "implant_system": "JOURNEY II BCS",
+        "implants": [
+            "Femoral Component",
+            "Tibial Baseplate",
+            "Polyethylene Insert"
+        ]
     },
 
     "Total Hip Replacement (Cemented)": {
@@ -168,19 +212,26 @@ CLINICAL_PREFERENCE_PROFILES = {
         "skin_prep": "ChloraPrep 2% chlorhexidine gluconate",
         "drape_pack": "Total Hip Drape Pack",
         "equipment": [
-            "C-Arm Image Intensifier",
-            "Stryker System 8 Power Tool Kit",
+            "Suction Machine",
+            "Diathermy Machine",
+            "Cement Vacuum Footpump"
         ],
-        "instrument_system": "DePuy Pinnacle Acetabular Preparation Kit",
+        "instrument_system": "R3 Acetabular System with CPCS",
         "instruments": [
             {"name": "Smith & Nephew R3 Acetabular System", "quantity": 4},
+            {"name": "CPCS Total Hip System", "quantity": 1},
             {"name": "Large Orthopaedic Set", "quantity": 1},
+            {"name": "Conmed PowerTools with Trinkle", "quantity": 1},
+            {"name": "Splash Bowl", "quantity": 1},
+            {"name": "Jug", "quantity": 1},
+            {"name": "Heraeus Cement Gun", "quantity": 1}
         ],
-        "implant_system": "DePuy Pinnacle Hip System Matrix",
+        "implant_system": "R3 Acetabular / CPCS Total Hip System",
         "implants": [
-            "Acetabular Cup Component",
+            "R3 Acetabular Cup Component",
             "Femoral Stem Component",
             "Ceramic Head Component",
+            "CPCS Stem"
         ],
     },
 
@@ -426,6 +477,8 @@ CONSUMABLES_ITEMS = [
     "Skin Marker Pen",
     "Chlorhexidine 2% Applicator",
     "Betadine Prep Solution",
+    "Saw Blade (Conmed) x 1 Ref#5071-201",
+    "Sharps Pad",
     "Scalpel Blade #10",
     "Scalpel Blade #15",
     "Suture Removal Kit",
@@ -436,6 +489,9 @@ CONSUMABLES_ITEMS = [
     "Diathermy Tip",
     "Syringe 10ml",
     "Syringe 20ml",
+    "Syringe 50ml",
+    "Bladder Syringe",
+    "Eschmark Bandage"
 ]
 
 DISPOSABLES_ITEMS = [

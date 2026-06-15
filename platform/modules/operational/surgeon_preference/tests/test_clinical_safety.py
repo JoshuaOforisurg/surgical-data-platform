@@ -83,11 +83,27 @@ def test_synthetic_cards_use_procedure_specific_supplies(tmp_path):
         assert {item.name for item in card.instruments}.issubset(
             {item["name"] for item in profile["instruments"]}
         )
-        assert {item.name for item in card.draping}.issubset({profile["drape_pack"]})
-        assert {item.name for item in card.consumables}.issubset(set(profile["consumables"]))
-        assert {item.name for item in card.disposables}.issubset(set(profile["disposables"]))
-        assert {item.name for item in card.sutures}.issubset(set(profile["sutures"]))
-        assert {item.name for item in card.dressings}.issubset(set(profile["dressings"]))
+        expected_draping = {
+            profile["drape_pack"],
+            *profile.get("draping_order", []),
+        }
+
+        assert {item.name for item in card.draping}.issubset(expected_draping)
+        assert {item.name for item in card.consumables} == set(profile["consumables"])
+        assert {item.name for item in card.disposables} == set(profile["disposables"])
+        assert {item.name for item in card.sutures} == set(profile["sutures"])
+        assert {item.name for item in card.dressings} == set(profile["dressings"])
 
         if card.implants:
             assert {item.name for item in card.implants}.issubset(set(profile["implants"]))
+
+
+def test_mock_catalogue_has_complete_frontline_sections():
+    for procedure_name, profile in mock_data.CLINICAL_PREFERENCE_PROFILES.items():
+        assert profile.get("drape_pack"), procedure_name
+        assert profile.get("instruments"), procedure_name
+        assert profile.get("equipment"), procedure_name
+        assert profile.get("consumables"), procedure_name
+        assert profile.get("disposables"), procedure_name
+        assert profile.get("sutures"), procedure_name
+        assert profile.get("dressings"), procedure_name

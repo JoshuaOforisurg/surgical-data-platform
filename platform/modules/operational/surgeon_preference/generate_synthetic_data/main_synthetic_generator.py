@@ -109,18 +109,23 @@ def generate_single_card(output_dir: str = "output", messy: bool = True):
         for e in profile.get("equipment", [])
     ]
 
+    draping_names = [
+        profile.get("drape_pack", "Standard drape pack"),
+        *profile.get("draping_order", []),
+    ]
     draping_objects = [
-        DrapingItem(name=profile.get("drape_pack", "Standard drape pack"))
+        DrapingItem(name=name)
+        for name in dict.fromkeys(name for name in draping_names if name)
     ]
 
     consumables_objects = [
         Consumables(name=c, quantity=random.randint(1, 5))
-        for c in profile.get("consumables", [])[:4]
+        for c in profile.get("consumables", [])
     ]
 
     disposables_objects = [
         Disposables(name=d, quantity=random.randint(1, 2))
-        for d in profile.get("disposables", [])[:3]
+        for d in profile.get("disposables", [])
     ]
 
     # ---------------------------------------------------------
@@ -135,16 +140,13 @@ def generate_single_card(output_dir: str = "output", messy: bool = True):
     # 7. Sutures & Dressings
     # ---------------------------------------------------------
     sutures_objects = [
-        SutureItem(
-            name=random.choice(profile.get("sutures") or mock_data.SUTURE_NAMES),
-            quantity=random.randint(1, 3)
-        )
+        SutureItem(name=suture, quantity=random.randint(1, 3))
+        for suture in (profile.get("sutures") or [random.choice(mock_data.SUTURE_NAMES)])
     ]
 
     dressing_objects = [
-        DressingItem(
-            name=random.choice(profile.get("dressings") or mock_data.DRESSING_OPTIONS)
-        )
+        DressingItem(name=dressing)
+        for dressing in (profile.get("dressings") or [random.choice(mock_data.DRESSING_OPTIONS)])
     ]
 
     # ---------------------------------------------------------
