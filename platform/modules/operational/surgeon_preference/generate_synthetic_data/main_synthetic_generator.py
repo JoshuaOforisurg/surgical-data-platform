@@ -1,4 +1,5 @@
 import random
+import argparse
 from pathlib import Path
 from datetime import datetime
 
@@ -190,7 +191,7 @@ def generate_single_card(output_dir: str = "output", messy: bool = True):
 # GENERATE A BATCH
 # ============================================================
 
-def generate_batch(n: int = 10, output_dir: str = "output", messy: bool = True):
+def generate_batch(n: int = 100, output_dir: str = "output", messy: bool = True):
     """
     Generates a batch of surgeon preference cards.
     """
@@ -208,7 +209,13 @@ def generate_batch(n: int = 10, output_dir: str = "output", messy: bool = True):
 
 
 if __name__ == "__main__":
-    batch_size = 20
+    parser = argparse.ArgumentParser(description="Generate synthetic surgeon preference cards.")
+    parser.add_argument("--count", type=int, default=100)
+    parser.add_argument("--output-dir", default="generate_synthetic_data/output")
+    parser.add_argument("--clean", action="store_true", help="Disable messy source-data perturbations.")
+    args = parser.parse_args()
+
+    batch_size = args.count
     print(f"Generating {batch_size} synthetic preference cards...")
-    cards = generate_batch(n=batch_size, output_dir="output", messy=True)
+    cards = generate_batch(n=batch_size, output_dir=args.output_dir, messy=not args.clean)
     print("Done.")

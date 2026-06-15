@@ -40,6 +40,25 @@ Run the full pipeline:
 python main_orchestrator.py --source generate_synthetic_data/output/master_preferences.json
 ```
 
+By default, the local synthetic path is regenerated with 100 clinically aligned
+preference cards before the pipeline runs. Override the scale with:
+
+```bash
+SYNTHETIC_RECORD_COUNT=250 python main_orchestrator.py
+```
+
+Use the existing synthetic file without regeneration:
+
+```bash
+python main_orchestrator.py --use-existing-synthetic
+```
+
+Generate synthetic cards directly:
+
+```bash
+python -m generate_synthetic_data.main_synthetic_generator --count 100
+```
+
 Run the Streamlit UI:
 
 ```bash

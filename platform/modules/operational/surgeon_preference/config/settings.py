@@ -52,6 +52,7 @@ class PipelineSettings:
     environment: str
     project_root: Path
     default_input_path: Path
+    synthetic_record_count: int
     minio: MinIOSettings
     postgres: Optional[PostgresSettings]
 
@@ -94,6 +95,7 @@ def load_settings() -> PipelineSettings:
                 str(project_root / "generate_synthetic_data/output/master_preferences.json"),
             )
         ),
+        synthetic_record_count=int(_env("SYNTHETIC_RECORD_COUNT", "100") or "100"),
         minio=MinIOSettings(
             endpoint=minio_endpoint or "http://localhost:9000",
             access_key=_env("MINIO_ROOT_USER") or _env("MINIO_ACCESS_KEY") or "minioadmin",

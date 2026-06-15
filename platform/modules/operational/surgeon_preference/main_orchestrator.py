@@ -22,12 +22,26 @@ def main() -> None:
         default=str(settings.default_input_path),
         help="Input file or directory to land into MinIO before processing.",
     )
+    parser.add_argument(
+        "--synthetic-count",
+        type=int,
+        default=settings.synthetic_record_count,
+        help="Number of synthetic cards to generate when using the default source path.",
+    )
+    parser.add_argument(
+        "--use-existing-synthetic",
+        action="store_true",
+        help="Use the existing default synthetic file instead of regenerating it.",
+    )
     args = parser.parse_args()
 
     source_path = Path(args.source)
-    if source_path == settings.default_input_path and not source_path.exists():
-        logger.info("Default synthetic input missing; generating sample preference cards.")
-        generate_batch(n=20, output_dir=str(source_path.parent), messy=True)
+    if source_path == settings.default_input_path and not args.use_existing_synthetic:
+        logger.info(
+            "Generating %s clinically aligned synthetic preference cards.",
+            args.synthetic_count,
+        )
+        generate_batch(n=args.synthetic_count, output_dir=str(source_path.parent), messy=True)
 
     pipeline = MinIOMedallionPipeline(settings)
     result = pipeline.run(source_path)

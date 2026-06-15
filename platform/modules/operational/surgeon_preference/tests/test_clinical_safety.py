@@ -2,6 +2,8 @@ import json
 
 from domain.clinical_reference_data import CLINICAL_PROCEDURE_PROFILES
 from domain.clinical_reference_service import ClinicalReferenceService
+from generate_synthetic_data.main_synthetic_generator import generate_single_card
+from generate_synthetic_data import mock_data
 from silver_transform.silver_b.clinical_enrichment import ClinicalEnrichmentEngine
 
 
@@ -71,3 +73,21 @@ def test_reference_service_exports_normalised_tables():
     assert len(service.procedure_table()) == len(CLINICAL_PROCEDURE_PROFILES)
     assert len(service.instrument_system_table()) > 0
     assert len(service.supply_profile_table()) == len(CLINICAL_PROCEDURE_PROFILES)
+
+
+def test_synthetic_cards_use_procedure_specific_supplies(tmp_path):
+    for _ in range(50):
+        card = generate_single_card(output_dir=str(tmp_path), messy=False)
+        profile = mock_data.CLINICAL_PREFERENCE_PROFILES[card.procedure.name]
+
+        assert {item.name for item in card.instruments}.issubset(
+            {item["name"] for item in profile["instruments"]}
+        )
+        assert {item.name for item in card.draping}.issubset({profile["drape_pack"]})
+        assert {item.name for item in card.consumables}.issubset(set(profile["consumables"]))
+        assert {item.name for item in card.disposables}.issubset(set(profile["disposables"]))
+        assert {item.name for item in card.sutures}.issubset(set(profile["sutures"]))
+        assert {item.name for item in card.dressings}.issubset(set(profile["dressings"]))
+
+        if card.implants:
+            assert {item.name for item in card.implants}.issubset(set(profile["implants"]))
