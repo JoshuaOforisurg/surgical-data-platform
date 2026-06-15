@@ -85,6 +85,13 @@ if st.button("Generate Preference Card"):
 - **Instrument system:** {p.get('instrument_system', 'N/A')}
 - **Implant system:** {p.get('implant_system', 'N/A')}
 - **Instrument set:** {p.get('instrument_set', 'N/A')}
+- **Equipment:** {p.get('equipment', 'N/A')}
+- **Draping:** {p.get('draping', 'N/A')}
+- **Consumables:** {p.get('consumables', 'N/A')}
+- **Disposables:** {p.get('disposables', 'N/A')}
+- **Implants:** {p.get('implants', 'N/A')}
+- **Sutures:** {p.get('sutures', 'N/A')}
+- **Dressings:** {p.get('dressings', 'N/A')}
 - **Confidence:** {p.get('confidence', 'N/A')}
 - **Positioning:** {p.get('positioning', 'N/A')}
 - **Anaesthetic:** {p.get('anaesthetic_notes', 'N/A')}

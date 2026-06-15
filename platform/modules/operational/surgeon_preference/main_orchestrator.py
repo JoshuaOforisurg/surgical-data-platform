@@ -6,6 +6,7 @@ from pathlib import Path
 
 from config.logging_config import configure_logging
 from config.settings import load_settings
+from generate_synthetic_data.main_synthetic_generator import generate_batch
 from orchestration.minio_medallion_pipeline import MinIOMedallionPipeline
 
 
@@ -23,8 +24,13 @@ def main() -> None:
     )
     args = parser.parse_args()
 
+    source_path = Path(args.source)
+    if source_path == settings.default_input_path and not source_path.exists():
+        logger.info("Default synthetic input missing; generating sample preference cards.")
+        generate_batch(n=20, output_dir=str(source_path.parent), messy=True)
+
     pipeline = MinIOMedallionPipeline(settings)
-    result = pipeline.run(Path(args.source))
+    result = pipeline.run(source_path)
 
     logger.info(
         "Run complete | run_id=%s | files=%s | records=%s | gold_key=%s",

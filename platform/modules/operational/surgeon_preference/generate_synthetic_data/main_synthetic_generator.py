@@ -114,12 +114,12 @@ def generate_single_card(output_dir: str = "output", messy: bool = True):
 
     consumables_objects = [
         Consumables(name=c, quantity=random.randint(1, 5))
-        for c in random.sample(mock_data.CONSUMABLES_ITEMS, k=min(3, len(mock_data.CONSUMABLES_ITEMS)))
+        for c in profile.get("consumables", [])[:4]
     ]
 
     disposables_objects = [
         Disposables(name=d, quantity=random.randint(1, 2))
-        for d in random.sample(mock_data.DISPOSABLES_ITEMS, k=min(2, len(mock_data.DISPOSABLES_ITEMS)))
+        for d in profile.get("disposables", [])[:3]
     ]
 
     # ---------------------------------------------------------
@@ -135,14 +135,14 @@ def generate_single_card(output_dir: str = "output", messy: bool = True):
     # ---------------------------------------------------------
     sutures_objects = [
         SutureItem(
-            name=random.choice(mock_data.SUTURE_NAMES),
+            name=random.choice(profile.get("sutures") or mock_data.SUTURE_NAMES),
             quantity=random.randint(1, 3)
         )
     ]
 
     dressing_objects = [
         DressingItem(
-            name=random.choice(mock_data.DRESSING_OPTIONS)
+            name=random.choice(profile.get("dressings") or mock_data.DRESSING_OPTIONS)
         )
     ]
 

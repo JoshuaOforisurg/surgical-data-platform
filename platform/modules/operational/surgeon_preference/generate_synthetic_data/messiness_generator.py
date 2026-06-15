@@ -74,29 +74,20 @@ def apply_messiness(card_record):
         ]
 
     # ---------------------------------------------------------
-    # 4. Special instructions typo
-    # ---------------------------------------------------------
-    if messy.special_instructions and messy.special_instructions.notes:
-        if random.random() < 0.4:
-            messy.special_instructions.notes = introduce_typo(
-                messy.special_instructions.notes
-            )
-
-    # ---------------------------------------------------------
-    # 5. Randomly drop glove size
+    # 4. Randomly drop glove size
     # ---------------------------------------------------------
     if random.random() < 0.15:
         messy.surgeon.glove_size = None
 
     # ---------------------------------------------------------
-    # 6. Corrupt instrument quantities
+    # 5. Corrupt instrument quantities
     # ---------------------------------------------------------
     for inst in messy.instruments:
         if random.random() < 0.1:
             inst.quantity = random.choice([None, -1, 999])
 
     # ---------------------------------------------------------
-    # 7. Dirty whitespace on free-text fields
+    # 6. Dirty whitespace on free-text fields
     # ---------------------------------------------------------
     if random.random() < 0.2:
         messy.specialty = f" {messy.specialty}  "

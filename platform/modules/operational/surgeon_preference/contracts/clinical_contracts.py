@@ -87,6 +87,13 @@ class OperationalPreferenceGold(BaseModel):
     surgery_type: Optional[str] = None
     implant_system: Optional[str] = None
     instrument_set: str
+    equipment: Optional[str] = None
+    draping: Optional[str] = None
+    consumables: Optional[str] = None
+    disposables: Optional[str] = None
+    implants: Optional[str] = None
+    sutures: Optional[str] = None
+    dressings: Optional[str] = None
     positioning: Optional[str] = None
     anaesthetic_notes: Optional[str] = None
     skin_prep: Optional[str] = None

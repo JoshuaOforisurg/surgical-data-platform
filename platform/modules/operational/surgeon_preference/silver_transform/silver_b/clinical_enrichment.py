@@ -1,13 +1,8 @@
 from typing import Dict, Any, Optional, List
 import json
 
-from domain.clinical_reference_data import (
-    CLINICAL_PROCEDURE_PROFILES,
-    CLINICAL_INSTRUMENT_SYSTEMS,
-    find_procedure_match,
-    find_instrument_system_match,
-    _normalise,
-)
+from domain.clinical_reference_data import _normalise
+from domain.clinical_reference_service import ClinicalReferenceService
 
 
 class ClinicalEnrichmentEngine:
@@ -21,19 +16,19 @@ class ClinicalEnrichmentEngine:
     """
 
     def __init__(self):
-        pass
+        self.reference_service = ClinicalReferenceService()
 
     def resolve_procedure(self, raw_text: str) -> Optional[str]:
-        return find_procedure_match(raw_text)
+        return self.reference_service.resolve_procedure(raw_text)
 
     def resolve_instrument_system(self, raw_text: str) -> Optional[str]:
-        return find_instrument_system_match(raw_text)
+        return self.reference_service.resolve_instrument_system(raw_text)
 
     def get_procedure_profile(self, procedure_id: str) -> Optional[dict]:
-        return CLINICAL_PROCEDURE_PROFILES.get(procedure_id)
+        return self.reference_service.get_procedure_profile(procedure_id)
 
     def get_system_profile(self, system_id: str) -> Optional[dict]:
-        return CLINICAL_INSTRUMENT_SYSTEMS.get(system_id)
+        return self.reference_service.get_instrument_system_profile(system_id)
 
     def normalize_items(self, items: Optional[List[str]]) -> set:
         if not items:
@@ -149,7 +144,10 @@ class ClinicalEnrichmentEngine:
             flags.append("SYSTEM_PROCEDURE_MISMATCH")
 
         has_critical_anomaly = any("QUANTITY_ANOMALY" in f for f in flags)
-        has_mismatch = "SYSTEM_PROCEDURE_MISMATCH" in flags
+        has_mismatch = (
+            "SYSTEM_PROCEDURE_MISMATCH" in flags
+            or "OBSERVED_SYSTEM_PROCEDURE_MISMATCH" in flags
+        )
         valid = not has_critical_anomaly and not has_mismatch and bool(procedure_id)
         if has_critical_anomaly or has_mismatch:
             readiness_status = "Review required"
@@ -175,6 +173,7 @@ class ClinicalEnrichmentEngine:
         if "UNKNOWN_PROCEDURE" in flags: score -= 0.5
         if "SYSTEM_NOT_RESOLVED" in flags: score -= 0.1
         if "SYSTEM_PROCEDURE_MISMATCH" in flags: score -= 0.2
+        if "OBSERVED_SYSTEM_PROCEDURE_MISMATCH" in flags: score -= 0.25
         if any("QUANTITY_ANOMALY" in f for f in flags): score -= 0.15
 
         missing_count = len(validation_result.get("missing_expected_items", []))
@@ -206,10 +205,19 @@ class ClinicalEnrichmentEngine:
                 " ".join(clean_equipment),
             ]
         )
-        system_id = self.resolve_instrument_system(system_lookup_text)
-        if not system_id and proc_profile:
-            configured_systems = proc_profile.get("instrument_systems") or []
-            system_id = configured_systems[0] if configured_systems else None
+        observed_system_id = self.resolve_instrument_system(system_lookup_text)
+        configured_systems = proc_profile.get("instrument_systems") if proc_profile else []
+        system_id = configured_systems[0] if configured_systems else observed_system_id
+
+        if (
+            observed_system_id
+            and system_id
+            and observed_system_id != system_id
+            and procedure_id
+        ):
+            observed_system = self.get_system_profile(observed_system_id)
+            if observed_system and procedure_id not in observed_system.get("compatible_procedures", []):
+                pipeline_flags.append("OBSERVED_SYSTEM_PROCEDURE_MISMATCH")
 
         system_profile = self.get_system_profile(system_id) if system_id else None
         if not system_id and procedure_id:
@@ -226,12 +234,16 @@ class ClinicalEnrichmentEngine:
 
         confidence = self.compute_confidence(procedure_id=procedure_id, validation_result=validation)
         validation["confidence"] = confidence
+        raw_special_instruction = record.get("special_instructions_notes")
+        clean_special_instruction = self.reference_service.normalise_instruction(raw_special_instruction)
 
         # Inject quarantine trigger metadata
         is_quarantine_target = any("QUANTITY_ANOMALY" in f for f in validation["flags"])
 
         return {
             **record,
+            "special_instructions_notes": clean_special_instruction,
+            "raw_special_instructions_notes": raw_special_instruction,
             "quarantine_status": {
                 "is_corrupted": is_quarantine_target,
                 "quarantine_reason": "CRITICAL_QUANTITY_ANOMALY" if is_quarantine_target else None

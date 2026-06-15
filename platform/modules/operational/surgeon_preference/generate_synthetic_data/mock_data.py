@@ -1,7 +1,13 @@
-# Improved `mock_data.py` (production‑ready, modular, scalable)
+from domain.clinical_reference_data import (
+    CLINICAL_PROCEDURE_PROFILES,
+    CLINICAL_SPECIAL_INSTRUCTIONS,
+)
+
+
+# Improved `mock_data.py` (production-ready, modular, scalable)
 
 # ============================================================
-# mock_data.py — Production‑ready metadata for synthetic generator
+# mock_data.py - Production-ready metadata for synthetic generator
 # ============================================================
 
 # ============================================================
@@ -387,20 +393,24 @@ CLINICAL_PREFERENCE_PROFILES = {
         "implant_system": "Arthrex PARS Percutaneous Achilles Assembly",
     }
 }
+
+
+for _clinical_profile in CLINICAL_PROCEDURE_PROFILES.values():
+    _profile_name = _clinical_profile["name"]
+    if _profile_name in CLINICAL_PREFERENCE_PROFILES:
+        _mock_profile = CLINICAL_PREFERENCE_PROFILES[_profile_name]
+        expected_draping = _clinical_profile.get("expected_draping") or []
+        if expected_draping:
+            _mock_profile["drape_pack"] = expected_draping[0]
+        _mock_profile["consumables"] = _clinical_profile.get("expected_consumables", [])
+        _mock_profile["disposables"] = _clinical_profile.get("expected_disposables", [])
+        _mock_profile["sutures"] = _clinical_profile.get("expected_sutures", [])
+        _mock_profile["dressings"] = _clinical_profile.get("expected_dressings", [])
 # ============================================================
 # SPECIAL INSTRUCTIONS POOL
 # ============================================================
 
-SPECIAL_INSTRUCTIONS_POOL = [
-    "Confirm implant sizes before incision",
-    "Ensure C-arm is draped before patient enters theatre",
-    "Verify antibiotic prophylaxis timing",
-    "Check diathermy plate placement",
-    "Confirm patient positioning before prepping",
-    "Ensure implant trays are complete",
-    "Double-check prosthesis sizes with surgeon",
-    "Verify tourniquet pressure and duration",
-]
+SPECIAL_INSTRUCTIONS_POOL = CLINICAL_SPECIAL_INSTRUCTIONS
 # ============================================================
 # CONSUMABLES & DISPOSABLES
 # ============================================================

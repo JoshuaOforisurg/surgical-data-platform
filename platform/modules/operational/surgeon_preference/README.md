@@ -14,7 +14,7 @@ MinIO landing/
 Postgres bronze ledger
         |
         v
-Optional Iceberg SQL catalog bootstrap
+Postgres-backed Iceberg SQL catalog bootstrap
         |
         v
 Silver A structural cleanup
@@ -71,6 +71,36 @@ bronze_raw.ingested_records
 pipeline_audit.pipeline_runs
 ```
 
-When `pyiceberg` is installed, the pipeline also attempts to bootstrap an
-Iceberg SQL catalog namespace using the same Postgres service and the MinIO
-warehouse path.
+## Iceberg Status
+
+The pipeline now bootstraps a Postgres-backed Iceberg SQL catalog and points
+the warehouse at MinIO:
+
+```text
+s3://surgical-data/iceberg-warehouse
+```
+
+This creates the catalogue metadata foundation needed for a future Azure-ready
+lakehouse. The current production path still writes Bronze metadata to
+Postgres and publishes operational/analytics Gold files to MinIO. Writing
+Silver and Gold as Iceberg tables is the next storage-hardening step.
+
+## Clinical Reference Scaling
+
+The clinical catalogue is now exposed through `domain.clinical_reference_service`.
+That service presents the reference data as normalized tables:
+
+```text
+procedure_table()
+instrument_system_table()
+supply_profile_table()
+```
+
+Silver-B should use this service contract rather than reaching directly into
+raw dictionaries as the dataset grows. The current backing store is local
+Python reference data; the same service shape can later be backed by Postgres,
+Iceberg tables, or an API without changing the enrichment pipeline.
+
+The catalogue also canonicalises frontline-facing special instructions so messy
+source text such as spacing errors or typos is cleaned before it reaches the
+operational Gold card.
