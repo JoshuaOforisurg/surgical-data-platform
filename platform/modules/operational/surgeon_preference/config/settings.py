@@ -36,7 +36,7 @@ class PostgresSettings:
     def psycopg2_dsn(self) -> str:
         return (
             f"host={self.host} port={self.port} dbname={self.database} "
-            f"user={self.user} password={self.password}"
+            f"user={self.user} password={self.password} connect_timeout=5"
         )
 
     @property

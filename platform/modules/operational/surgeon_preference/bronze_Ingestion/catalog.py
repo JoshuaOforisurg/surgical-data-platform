@@ -117,6 +117,8 @@ class BronzeCatalogRepository:
                 artifact_name TEXT NOT NULL,
                 object_key TEXT NOT NULL,
                 record_count INTEGER NOT NULL DEFAULT 0,
+                schema_version TEXT,
+                data_product_version TEXT,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 PRIMARY KEY (run_id, artifact_name)
             )
@@ -131,6 +133,10 @@ class BronzeCatalogRepository:
                 updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
             """,
+            "ALTER TABLE pipeline_audit.pipeline_runs ADD COLUMN IF NOT EXISTS pipeline_version TEXT",
+            "ALTER TABLE pipeline_audit.pipeline_runs ADD COLUMN IF NOT EXISTS data_product_version TEXT",
+            "ALTER TABLE metadata_catalog.gold_artifacts ADD COLUMN IF NOT EXISTS schema_version TEXT",
+            "ALTER TABLE metadata_catalog.gold_artifacts ADD COLUMN IF NOT EXISTS data_product_version TEXT",
         ]
 
         with psycopg2.connect(self.settings.psycopg2_dsn) as conn:
@@ -138,6 +144,142 @@ class BronzeCatalogRepository:
                 for statement in statements:
                     cur.execute(statement)
             conn.commit()
+
+    def healthcheck(self, initialise: bool = True) -> Dict[str, Any]:
+        """
+        Validate that Postgres is reachable and has the schemas/tables expected
+        by the current MinIO medallion pipeline.
+        """
+        expected_tables = {
+            "bronze_raw": ["ingested_files", "ingested_records"],
+            "pipeline_audit": ["pipeline_runs"],
+            "metadata_catalog": ["object_store_objects", "gold_artifacts"],
+            "iceberg_catalog": ["catalog_bootstrap"],
+        }
+        expected_columns = {
+            ("bronze_raw", "ingested_files"): [
+                "file_id",
+                "run_id",
+                "bucket",
+                "object_key",
+                "object_uri",
+                "original_filename",
+                "file_extension",
+                "status",
+                "record_count",
+            ],
+            ("bronze_raw", "ingested_records"): [
+                "record_id",
+                "file_id",
+                "run_id",
+                "record_ordinal",
+                "raw_payload",
+            ],
+            ("pipeline_audit", "pipeline_runs"): [
+                "run_id",
+                "status",
+                "pipeline_version",
+                "data_product_version",
+                "records_processed",
+                "gold_operational_key",
+                "gold_analytics_key",
+            ],
+            ("metadata_catalog", "object_store_objects"): [
+                "object_key",
+                "run_id",
+                "bucket",
+                "object_uri",
+                "layer",
+                "artifact_type",
+                "checksum_sha256",
+            ],
+            ("metadata_catalog", "gold_artifacts"): [
+                "run_id",
+                "artifact_name",
+                "object_key",
+                "record_count",
+                "schema_version",
+                "data_product_version",
+            ],
+            ("iceberg_catalog", "catalog_bootstrap"): [
+                "catalog_name",
+                "warehouse_uri",
+                "namespace",
+                "status",
+            ],
+        }
+
+        if not self.enabled:
+            return {
+                "enabled": False,
+                "reachable": False,
+                "valid": False,
+                "missing_tables": [],
+                "missing_columns": {},
+                "message": "Postgres settings are not configured.",
+            }
+
+        missing_tables = []
+        missing_columns: Dict[str, list[str]] = {}
+
+        try:
+            if initialise:
+                self.initialise()
+
+            with psycopg2.connect(self.settings.psycopg2_dsn) as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SET statement_timeout = '5s'")
+                    cur.execute("SELECT 1")
+                    for schema, tables in expected_tables.items():
+                        for table in tables:
+                            cur.execute(
+                                """
+                                SELECT EXISTS (
+                                    SELECT 1
+                                    FROM information_schema.tables
+                                    WHERE table_schema = %s AND table_name = %s
+                                )
+                                """,
+                                (schema, table),
+                            )
+                            exists = bool(cur.fetchone()[0])
+                            if not exists:
+                                missing_tables.append(f"{schema}.{table}")
+                                continue
+
+                            cur.execute(
+                                """
+                                SELECT column_name
+                                FROM information_schema.columns
+                                WHERE table_schema = %s AND table_name = %s
+                                """,
+                                (schema, table),
+                            )
+                            actual_columns = {row[0] for row in cur.fetchall()}
+                            required_columns = expected_columns.get((schema, table), [])
+                            missing = [
+                                column for column in required_columns if column not in actual_columns
+                            ]
+                            if missing:
+                                missing_columns[f"{schema}.{table}"] = missing
+        except psycopg2.Error as exc:
+            return {
+                "enabled": True,
+                "reachable": False,
+                "valid": False,
+                "missing_tables": [],
+                "missing_columns": {},
+                "message": str(exc).strip(),
+            }
+
+        return {
+            "enabled": True,
+            "reachable": True,
+            "valid": not missing_tables and not missing_columns,
+            "missing_tables": missing_tables,
+            "missing_columns": missing_columns,
+            "message": "Postgres metadata catalogue is aligned with the pipeline.",
+        }
 
     def bootstrap_iceberg_catalog(self, warehouse_uri: str) -> None:
         if not self.enabled:
@@ -252,11 +394,13 @@ class BronzeCatalogRepository:
         run_id: str,
         artifacts: Dict[str, str],
         record_count: int,
+        schema_version: Optional[str] = None,
+        data_product_version: Optional[str] = None,
     ) -> None:
         if not self.enabled:
             return
         values = [
-            (run_id, artifact_name, object_key, record_count)
+            (run_id, artifact_name, object_key, record_count, schema_version, data_product_version)
             for artifact_name, object_key in artifacts.items()
         ]
         with psycopg2.connect(self.settings.psycopg2_dsn) as conn:
@@ -265,31 +409,45 @@ class BronzeCatalogRepository:
                     cur,
                     """
                     INSERT INTO metadata_catalog.gold_artifacts (
-                        run_id, artifact_name, object_key, record_count
+                        run_id, artifact_name, object_key, record_count,
+                        schema_version, data_product_version
                     )
                     VALUES %s
                     ON CONFLICT (run_id, artifact_name)
                     DO UPDATE SET object_key = EXCLUDED.object_key,
                                   record_count = EXCLUDED.record_count,
+                                  schema_version = EXCLUDED.schema_version,
+                                  data_product_version = EXCLUDED.data_product_version,
                                   created_at = CURRENT_TIMESTAMP
                     """,
                     values,
                 )
             conn.commit()
 
-    def start_run(self, run_id: str, source_path: str) -> None:
+    def start_run(
+        self,
+        run_id: str,
+        source_path: str,
+        pipeline_version: Optional[str] = None,
+        data_product_version: Optional[str] = None,
+    ) -> None:
         if not self.enabled:
             return
         with psycopg2.connect(self.settings.psycopg2_dsn) as conn:
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                    INSERT INTO pipeline_audit.pipeline_runs (run_id, status, source_path)
-                    VALUES (%s, %s, %s)
+                    INSERT INTO pipeline_audit.pipeline_runs (
+                        run_id, status, source_path, pipeline_version, data_product_version
+                    )
+                    VALUES (%s, %s, %s, %s, %s)
                     ON CONFLICT (run_id)
-                    DO UPDATE SET status = EXCLUDED.status, source_path = EXCLUDED.source_path
+                    DO UPDATE SET status = EXCLUDED.status,
+                                  source_path = EXCLUDED.source_path,
+                                  pipeline_version = EXCLUDED.pipeline_version,
+                                  data_product_version = EXCLUDED.data_product_version
                     """,
-                    (run_id, "running", source_path),
+                    (run_id, "running", source_path, pipeline_version, data_product_version),
                 )
             conn.commit()
 

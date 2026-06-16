@@ -1,13 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 from pathlib import Path
 
+from bronze_Ingestion.catalog import BronzeCatalogRepository
 from config.logging_config import configure_logging
 from config.settings import load_settings
-from generate_synthetic_data.main_synthetic_generator import generate_batch
-from orchestration.minio_medallion_pipeline import MinIOMedallionPipeline
 
 
 def main() -> None:
@@ -44,10 +44,24 @@ def main() -> None:
         default=settings.synthetic_file_formats,
         help="Comma-separated partitioned formats. Structured ingestion supports json,csv.",
     )
+    parser.add_argument(
+        "--check-postgres",
+        action="store_true",
+        help="Initialise and validate the Postgres metadata catalogue, then exit.",
+    )
     args = parser.parse_args()
+
+    if args.check_postgres:
+        report = BronzeCatalogRepository(settings.postgres).healthcheck(initialise=True)
+        print(json.dumps(report, indent=2))
+        if not report["valid"]:
+            raise SystemExit(1)
+        return
 
     source_path = Path(args.source)
     if source_path == settings.default_input_path and not args.use_existing_synthetic:
+        from generate_synthetic_data.main_synthetic_generator import generate_batch
+
         logger.info(
             "Generating %s clinically aligned synthetic preference cards mode=%s formats=%s.",
             args.synthetic_count,
@@ -63,6 +77,8 @@ def main() -> None:
         )
         if args.synthetic_output_mode == "partitioned":
             source_path = source_path.parent / "partitioned"
+
+    from orchestration.minio_medallion_pipeline import MinIOMedallionPipeline
 
     pipeline = MinIOMedallionPipeline(settings)
     result = pipeline.run(source_path)
