@@ -118,6 +118,14 @@ def test_legacy_mock_data_facade_matches_modular_catalogue():
     assert mock_data.SPECIAL_INSTRUCTIONS_POOL is catalogue.SPECIAL_INSTRUCTIONS_POOL
 
 
+def test_synthetic_surgeon_titles_use_uk_consultant_style():
+    assert all(
+        name.startswith(("Mr ", "Ms ", "Miss ", "Mrs "))
+        for name in mock_data.SURGEON_NAMES
+    )
+    assert not any(name.startswith("Dr ") for name in mock_data.SURGEON_NAMES)
+
+
 def test_partitioned_generation_writes_structured_files(tmp_path):
     generate_batch(
         n=12,
