@@ -1,5 +1,3 @@
----
-
 # Surgical Data Platform
 
 ## Description
