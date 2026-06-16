@@ -33,15 +33,36 @@ def main() -> None:
         action="store_true",
         help="Use the existing default synthetic file instead of regenerating it.",
     )
+    parser.add_argument(
+        "--synthetic-output-mode",
+        choices=["master", "partitioned", "both"],
+        default=settings.synthetic_output_mode,
+        help="master writes aggregate files; partitioned writes one structured source file per card.",
+    )
+    parser.add_argument(
+        "--synthetic-file-formats",
+        default=settings.synthetic_file_formats,
+        help="Comma-separated partitioned formats. Structured ingestion supports json,csv.",
+    )
     args = parser.parse_args()
 
     source_path = Path(args.source)
     if source_path == settings.default_input_path and not args.use_existing_synthetic:
         logger.info(
-            "Generating %s clinically aligned synthetic preference cards.",
+            "Generating %s clinically aligned synthetic preference cards mode=%s formats=%s.",
             args.synthetic_count,
+            args.synthetic_output_mode,
+            args.synthetic_file_formats,
         )
-        generate_batch(n=args.synthetic_count, output_dir=str(source_path.parent), messy=True)
+        generate_batch(
+            n=args.synthetic_count,
+            output_dir=str(source_path.parent),
+            messy=True,
+            output_mode=args.synthetic_output_mode,
+            file_formats=args.synthetic_file_formats,
+        )
+        if args.synthetic_output_mode == "partitioned":
+            source_path = source_path.parent / "partitioned"
 
     pipeline = MinIOMedallionPipeline(settings)
     result = pipeline.run(source_path)

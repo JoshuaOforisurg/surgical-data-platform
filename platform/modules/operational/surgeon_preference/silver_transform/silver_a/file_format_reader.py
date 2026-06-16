@@ -94,12 +94,12 @@ class FileReader:
     @staticmethod
     def _read_csv(file_path: Path, chunk_size: Optional[int] = None) -> Dict[str, Any]:
         if chunk_size:
-            chunks = pd.read_csv(file_path, chunksize=chunk_size)
+            chunks = pd.read_csv(file_path, chunksize=chunk_size, keep_default_na=False)
             data = []
             for chunk in chunks:
                 data.extend(chunk.to_dict(orient="records"))
         else:
-            data = pd.read_csv(file_path).to_dict(orient="records")
+            data = pd.read_csv(file_path, keep_default_na=False).to_dict(orient="records")
 
         return {
             "content": data,   # list[dict]

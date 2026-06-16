@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -14,6 +15,16 @@ from config.settings import PostgresSettings
 
 
 LOGGER = logging.getLogger(__name__)
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    return value
 
 
 class BronzeCatalogRepository:
@@ -40,6 +51,8 @@ class BronzeCatalogRepository:
         statements = [
             "CREATE SCHEMA IF NOT EXISTS bronze_raw",
             "CREATE SCHEMA IF NOT EXISTS pipeline_audit",
+            "CREATE SCHEMA IF NOT EXISTS metadata_catalog",
+            "CREATE SCHEMA IF NOT EXISTS iceberg_catalog",
             """
             CREATE TABLE IF NOT EXISTS bronze_raw.ingested_files (
                 file_id UUID PRIMARY KEY,
@@ -83,6 +96,41 @@ class BronzeCatalogRepository:
                 completed_at TIMESTAMPTZ
             )
             """,
+            """
+            CREATE TABLE IF NOT EXISTS metadata_catalog.object_store_objects (
+                object_key TEXT PRIMARY KEY,
+                run_id TEXT,
+                bucket TEXT NOT NULL,
+                object_uri TEXT NOT NULL,
+                layer TEXT NOT NULL,
+                artifact_type TEXT NOT NULL,
+                content_type TEXT,
+                size_bytes BIGINT,
+                checksum_sha256 TEXT,
+                source_filename TEXT,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS metadata_catalog.gold_artifacts (
+                run_id TEXT NOT NULL,
+                artifact_name TEXT NOT NULL,
+                object_key TEXT NOT NULL,
+                record_count INTEGER NOT NULL DEFAULT 0,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (run_id, artifact_name)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS iceberg_catalog.catalog_bootstrap (
+                catalog_name TEXT PRIMARY KEY,
+                warehouse_uri TEXT NOT NULL,
+                namespace TEXT NOT NULL,
+                status TEXT NOT NULL,
+                error_message TEXT,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
         ]
 
         with psycopg2.connect(self.settings.psycopg2_dsn) as conn:
@@ -116,8 +164,118 @@ class BronzeCatalogRepository:
             except NoSuchNamespaceError:
                 catalog.create_namespace("bronze_raw")
             LOGGER.info("Iceberg SQL catalog is available with warehouse=%s", warehouse_uri)
+            self.record_iceberg_status(
+                catalog_name="surgeon_preference",
+                warehouse_uri=warehouse_uri,
+                namespace="bronze_raw",
+                status="available",
+            )
         except Exception:
             LOGGER.exception("Iceberg catalog bootstrap failed; Postgres bronze ledger remains available.")
+            self.record_iceberg_status(
+                catalog_name="surgeon_preference",
+                warehouse_uri=warehouse_uri,
+                namespace="bronze_raw",
+                status="bootstrap_failed",
+                error_message="See pipeline logs for pyiceberg exception details.",
+            )
+
+    def record_iceberg_status(
+        self,
+        catalog_name: str,
+        warehouse_uri: str,
+        namespace: str,
+        status: str,
+        error_message: Optional[str] = None,
+    ) -> None:
+        if not self.enabled:
+            return
+        with psycopg2.connect(self.settings.psycopg2_dsn) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO iceberg_catalog.catalog_bootstrap (
+                        catalog_name, warehouse_uri, namespace, status, error_message
+                    )
+                    VALUES (%s, %s, %s, %s, %s)
+                    ON CONFLICT (catalog_name)
+                    DO UPDATE SET warehouse_uri = EXCLUDED.warehouse_uri,
+                                  namespace = EXCLUDED.namespace,
+                                  status = EXCLUDED.status,
+                                  error_message = EXCLUDED.error_message,
+                                  updated_at = CURRENT_TIMESTAMP
+                    """,
+                    (catalog_name, warehouse_uri, namespace, status, error_message),
+                )
+            conn.commit()
+
+    def register_object(self, metadata: Dict[str, Any]) -> None:
+        if not self.enabled:
+            return
+        with psycopg2.connect(self.settings.psycopg2_dsn) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO metadata_catalog.object_store_objects (
+                        object_key, run_id, bucket, object_uri, layer, artifact_type,
+                        content_type, size_bytes, checksum_sha256, source_filename
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (object_key)
+                    DO UPDATE SET run_id = EXCLUDED.run_id,
+                                  bucket = EXCLUDED.bucket,
+                                  object_uri = EXCLUDED.object_uri,
+                                  layer = EXCLUDED.layer,
+                                  artifact_type = EXCLUDED.artifact_type,
+                                  content_type = EXCLUDED.content_type,
+                                  size_bytes = EXCLUDED.size_bytes,
+                                  checksum_sha256 = EXCLUDED.checksum_sha256,
+                                  source_filename = EXCLUDED.source_filename
+                    """,
+                    (
+                        metadata["object_key"],
+                        metadata.get("run_id"),
+                        metadata["bucket"],
+                        metadata["object_uri"],
+                        metadata["layer"],
+                        metadata["artifact_type"],
+                        metadata.get("content_type"),
+                        metadata.get("size_bytes"),
+                        metadata.get("checksum_sha256"),
+                        metadata.get("source_filename"),
+                    ),
+                )
+            conn.commit()
+
+    def register_gold_artifacts(
+        self,
+        run_id: str,
+        artifacts: Dict[str, str],
+        record_count: int,
+    ) -> None:
+        if not self.enabled:
+            return
+        values = [
+            (run_id, artifact_name, object_key, record_count)
+            for artifact_name, object_key in artifacts.items()
+        ]
+        with psycopg2.connect(self.settings.psycopg2_dsn) as conn:
+            with conn.cursor() as cur:
+                execute_values(
+                    cur,
+                    """
+                    INSERT INTO metadata_catalog.gold_artifacts (
+                        run_id, artifact_name, object_key, record_count
+                    )
+                    VALUES %s
+                    ON CONFLICT (run_id, artifact_name)
+                    DO UPDATE SET object_key = EXCLUDED.object_key,
+                                  record_count = EXCLUDED.record_count,
+                                  created_at = CURRENT_TIMESTAMP
+                    """,
+                    values,
+                )
+            conn.commit()
 
     def start_run(self, run_id: str, source_path: str) -> None:
         if not self.enabled:
@@ -179,7 +337,7 @@ class BronzeCatalogRepository:
             return len(records)
 
         values = [
-            (str(uuid.uuid4()), str(file_id), run_id, idx, Json(record))
+            (str(uuid.uuid4()), str(file_id), run_id, idx, Json(_json_safe(record)))
             for idx, record in enumerate(records, start=1)
         ]
         with psycopg2.connect(self.settings.psycopg2_dsn) as conn:

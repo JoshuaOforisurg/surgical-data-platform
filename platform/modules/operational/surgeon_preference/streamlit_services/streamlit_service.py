@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 import boto3
 from botocore.client import Config
 from dotenv import load_dotenv, find_dotenv
-from azure.storage.blob import BlobServiceClient
+from azure.storage.blob import BlobServiceClient, ContentSettings
 
 
 load_dotenv(find_dotenv())
@@ -25,6 +25,11 @@ class StorageClient(ABC):
     @abstractmethod
     def get_text(self, key: str) -> str:
         """Reads a text object from storage."""
+        pass
+
+    @abstractmethod
+    def put_text(self, key: str, text: str, content_type: str = "text/plain") -> None:
+        """Writes a text object to storage."""
         pass
 
 
@@ -80,6 +85,14 @@ class MinIOClient(StorageClient):
         resp = self.client.get_object(Bucket=self.bucket, Key=key)
         return resp["Body"].read().decode("utf-8")
 
+    def put_text(self, key: str, text: str, content_type: str = "text/plain") -> None:
+        self.client.put_object(
+            Bucket=self.bucket,
+            Key=key,
+            Body=text.encode("utf-8"),
+            ContentType=content_type,
+        )
+
 
 # 3. Azure Production Implementation
 class AzureBlobStorageClient(StorageClient):
@@ -106,6 +119,14 @@ class AzureBlobStorageClient(StorageClient):
     def get_text(self, key: str) -> str:
         blob_client = self.container_client.get_blob_client(key)
         return blob_client.download_blob().readall().decode("utf-8")
+
+    def put_text(self, key: str, text: str, content_type: str = "text/plain") -> None:
+        blob_client = self.container_client.get_blob_client(key)
+        blob_client.upload_blob(
+            text.encode("utf-8"),
+            overwrite=True,
+            content_settings=ContentSettings(content_type=content_type),
+        )
 
 
 # 4. Factory Function (The Magic Switcher)

@@ -1,0 +1,5 @@
+from __future__ import annotations
+
+from domain.clinical_reference_data import CLINICAL_SPECIAL_INSTRUCTIONS
+
+SPECIAL_INSTRUCTIONS_POOL = CLINICAL_SPECIAL_INSTRUCTIONS

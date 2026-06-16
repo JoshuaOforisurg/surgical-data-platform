@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import io
 import json
 import logging
@@ -142,6 +143,14 @@ class MinIOMedallionPipeline:
                 "checksum_sha256": checksum,
             }
             file_id = self.catalog.register_file(metadata)
+            self.catalog.register_object(
+                {
+                    **metadata,
+                    "layer": "landing",
+                    "artifact_type": "source_file",
+                    "source_filename": file_path.name,
+                }
+            )
             landed = {**metadata, "file_id": file_id}
             landed_files.append(landed)
             LOGGER.info("Landed file name=%s key=%s", file_path.name, object_key)
@@ -210,6 +219,42 @@ class MinIOMedallionPipeline:
         self.object_store.put_text(keys["operational_latest_csv"], operational_csv, "text/csv")
         self.object_store.put_text(keys["operational_latest_json"], operational_json, "application/json")
         self.object_store.put_text(keys["analytics_latest_json"], analytics_json, "application/json")
+        self._register_published_objects(
+            run_id,
+            {
+                keys["operational_run_csv"]: ("gold", "operational_run_csv", "text/csv", operational_csv),
+                keys["operational_run_json"]: (
+                    "gold",
+                    "operational_run_json",
+                    "application/json",
+                    operational_json,
+                ),
+                keys["analytics_run_json"]: ("gold", "analytics_run_json", "application/json", analytics_json),
+                keys["operational_latest_csv"]: (
+                    "gold",
+                    "operational_latest_csv",
+                    "text/csv",
+                    operational_csv,
+                ),
+                keys["operational_latest_json"]: (
+                    "gold",
+                    "operational_latest_json",
+                    "application/json",
+                    operational_json,
+                ),
+                keys["analytics_latest_json"]: (
+                    "gold",
+                    "analytics_latest_json",
+                    "application/json",
+                    analytics_json,
+                ),
+            },
+        )
+        self.catalog.register_gold_artifacts(
+            run_id=run_id,
+            artifacts=keys,
+            record_count=len(operational_rows),
+        )
 
         return keys
 
@@ -236,7 +281,34 @@ class MinIOMedallionPipeline:
             "gold_keys": gold_keys,
         }
         key = f"{self.settings.minio.bronze_prefix}/manifests/{run_id}.json"
-        self.object_store.put_text(key, json.dumps(manifest, indent=2), "application/json")
+        manifest_json = json.dumps(manifest, indent=2)
+        self.object_store.put_text(key, manifest_json, "application/json")
+        self._register_published_objects(
+            run_id,
+            {key: ("bronze", "run_manifest", "application/json", manifest_json)},
+        )
+
+    def _register_published_objects(
+        self,
+        run_id: str,
+        objects: Dict[str, tuple[str, str, str, str]],
+    ) -> None:
+        for object_key, (layer, artifact_type, content_type, text) in objects.items():
+            data = text.encode("utf-8")
+            self.catalog.register_object(
+                {
+                    "run_id": run_id,
+                    "bucket": self.settings.minio.bucket,
+                    "object_key": object_key,
+                    "object_uri": f"s3://{self.settings.minio.bucket}/{object_key}",
+                    "layer": layer,
+                    "artifact_type": artifact_type,
+                    "content_type": content_type,
+                    "size_bytes": len(data),
+                    "checksum_sha256": hashlib.sha256(data).hexdigest(),
+                    "source_filename": None,
+                }
+            )
 
     def _rows_to_csv(self, rows: List[Dict[str, Any]]) -> str:
         if not rows:

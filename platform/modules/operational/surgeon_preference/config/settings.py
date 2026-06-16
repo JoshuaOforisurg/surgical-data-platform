@@ -53,6 +53,8 @@ class PipelineSettings:
     project_root: Path
     default_input_path: Path
     synthetic_record_count: int
+    synthetic_output_mode: str
+    synthetic_file_formats: str
     minio: MinIOSettings
     postgres: Optional[PostgresSettings]
 
@@ -95,7 +97,9 @@ def load_settings() -> PipelineSettings:
                 str(project_root / "generate_synthetic_data/output/master_preferences.json"),
             )
         ),
-        synthetic_record_count=int(_env("SYNTHETIC_RECORD_COUNT", "100") or "100"),
+        synthetic_record_count=int(_env("SYNTHETIC_RECORD_COUNT", "1000") or "1000"),
+        synthetic_output_mode=_env("SYNTHETIC_OUTPUT_MODE", "master") or "master",
+        synthetic_file_formats=_env("SYNTHETIC_FILE_FORMATS", "json,csv") or "json,csv",
         minio=MinIOSettings(
             endpoint=minio_endpoint or "http://localhost:9000",
             access_key=_env("MINIO_ROOT_USER") or _env("MINIO_ACCESS_KEY") or "minioadmin",

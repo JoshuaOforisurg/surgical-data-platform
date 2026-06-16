@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Dict, List, Any, Optional
 import json
+import re
 from datetime import datetime, UTC
 
 from config.paths import SILVER_A_DIR
@@ -68,6 +69,8 @@ class SilverTransformer:
         """Ensures codes are structured as lists, stripped, and uppercase."""
         if not codes:
             return []
+        if isinstance(codes, str) and "," in codes:
+            codes = [code.strip() for code in codes.split(",")]
         if isinstance(codes, str):
             codes = [codes]
         return [
@@ -75,6 +78,32 @@ class SilverTransformer:
             for c in codes
             if clean_text(c) is not None
         ]
+
+    def structural_items_json(self, value: Any) -> str:
+        if not value:
+            return json.dumps([])
+        if isinstance(value, list):
+            return json.dumps(value)
+        if isinstance(value, str):
+            try:
+                parsed = json.loads(value)
+                if isinstance(parsed, list):
+                    return json.dumps(parsed)
+            except json.JSONDecodeError:
+                pass
+            items = []
+            for part in value.split(","):
+                item_text = part.strip()
+                if not item_text:
+                    continue
+                quantity_match = re.search(r"\(x(-?\d+)\)", item_text)
+                quantity = int(quantity_match.group(1)) if quantity_match else 1
+                name = re.sub(r"\s*\(x-?\d+\)\s*", "", item_text).strip()
+                name = re.sub(r"\s*\[Size:[^\]]+\]\s*", "", name).strip()
+                if name and name.upper() != "N/A":
+                    items.append({"name": name, "quantity": quantity})
+            return json.dumps(items)
+        return json.dumps([])
 
     # -----------------------------
     # Core transformation
@@ -98,8 +127,12 @@ class SilverTransformer:
             surgeon_specialty = clean_text(content.get("specialty"), case_style="title")
 
             procedure_name = clean_text(content.get("procedure_name"), case_style="title")
-            procedure_codes = self.clean_code_list(content.get("procedure_code"))
-            diagnosis_codes = self.clean_code_list(content.get("diagnosis_code"))
+            procedure_codes = self.clean_code_list(
+                content.get("procedure_code") or content.get("procedure_codes")
+            )
+            diagnosis_codes = self.clean_code_list(
+                content.get("diagnosis_code") or content.get("diagnosis_codes")
+            )
 
             procedure_subspecialty = clean_text(content.get("subspecialty"), case_style="title")
             procedure_type = clean_text(content.get("surgery_type"), case_style="title")
@@ -181,14 +214,14 @@ class SilverTransformer:
             "implant_system": implant_system,
 
             # Structural arrays kept intact as raw strings for Silver-B parsing
-            "instruments": json.dumps(content.get("instruments", [])),
-            "equipment": json.dumps(content.get("equipment", [])),
-            "draping": json.dumps(content.get("draping", [])),
-            "consumables": json.dumps(content.get("consumables", [])),
-            "disposables": json.dumps(content.get("disposables", [])),
-            "implants": json.dumps(content.get("implants", [])) if content.get("implants") else None,
-            "sutures": json.dumps(content.get("sutures", [])),
-            "dressings": json.dumps(content.get("dressings", [])),
+            "instruments": self.structural_items_json(content.get("instruments")),
+            "equipment": self.structural_items_json(content.get("equipment")),
+            "draping": self.structural_items_json(content.get("draping")),
+            "consumables": self.structural_items_json(content.get("consumables")),
+            "disposables": self.structural_items_json(content.get("disposables")),
+            "implants": self.structural_items_json(content.get("implants")) if content.get("implants") else None,
+            "sutures": self.structural_items_json(content.get("sutures")),
+            "dressings": self.structural_items_json(content.get("dressings")),
 
             "version_number": self.safe_get(content.get("version", {}), "version"),
             "version_updated_by": clean_text(self.safe_get(content.get("version", {}), "updated_by")),

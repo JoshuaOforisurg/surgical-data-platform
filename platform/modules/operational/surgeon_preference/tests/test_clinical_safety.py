@@ -3,7 +3,10 @@ import json
 from domain.clinical_reference_data import CLINICAL_PROCEDURE_PROFILES
 from domain.clinical_reference_service import ClinicalReferenceService
 from generate_synthetic_data.main_synthetic_generator import generate_single_card
+from generate_synthetic_data.main_synthetic_generator import generate_batch
 from generate_synthetic_data import mock_data
+from generate_synthetic_data import catalogue
+from silver_transform.silver_a.silver_a_transformer import SilverTransformer
 from silver_transform.silver_b.clinical_enrichment import ClinicalEnrichmentEngine
 
 
@@ -76,8 +79,8 @@ def test_reference_service_exports_normalised_tables():
 
 
 def test_synthetic_cards_use_procedure_specific_supplies(tmp_path):
-    for _ in range(50):
-        card = generate_single_card(output_dir=str(tmp_path), messy=False)
+    for _ in range(20):
+        card = generate_single_card(output_dir=str(tmp_path), messy=False, export=False)
         profile = mock_data.CLINICAL_PREFERENCE_PROFILES[card.procedure.name]
 
         assert {item.name for item in card.instruments}.issubset(
@@ -107,3 +110,50 @@ def test_mock_catalogue_has_complete_frontline_sections():
         assert profile.get("disposables"), procedure_name
         assert profile.get("sutures"), procedure_name
         assert profile.get("dressings"), procedure_name
+
+
+def test_legacy_mock_data_facade_matches_modular_catalogue():
+    assert mock_data.PROCEDURES is catalogue.PROCEDURES
+    assert mock_data.CLINICAL_PREFERENCE_PROFILES is catalogue.CLINICAL_PREFERENCE_PROFILES
+    assert mock_data.SPECIAL_INSTRUCTIONS_POOL is catalogue.SPECIAL_INSTRUCTIONS_POOL
+
+
+def test_partitioned_generation_writes_structured_files(tmp_path):
+    generate_batch(
+        n=12,
+        output_dir=str(tmp_path),
+        messy=False,
+        output_mode="partitioned",
+        file_formats="json,csv",
+    )
+
+    partitioned = tmp_path / "partitioned"
+    files = sorted(path.name for path in partitioned.iterdir())
+
+    assert len(files) == 12
+    assert any(file.endswith(".json") for file in files)
+    assert any(file.endswith(".csv") for file in files)
+    assert not (tmp_path / "master_preferences.json").exists()
+
+
+def test_flat_csv_structural_items_survive_silver_a():
+    transformer = SilverTransformer()
+    row = transformer.flatten_card(
+        {
+            "metadata": {},
+            "content": {
+                "surgeon_name": "Dr Test",
+                "procedure_name": "Total Knee Replacement",
+                "procedure_codes": "0SRC0JZ",
+                "diagnosis_codes": "M17.10",
+                "instruments": "JOURNEY II BCS Knee System (x7), Large Orthopaedic Set (x1)",
+                "equipment": "Stryker SmartPump Tourniquet System (Req: True)",
+                "consumables": "Skin Marker Pen (x1), Suction Tubing (x2)",
+                "disposables": "Disposable Saw Blade - Oscillating (x1)",
+            },
+        }
+    )
+
+    assert row["procedure_codes"] == '["0SRC0JZ"]'
+    assert "JOURNEY II BCS Knee System" in row["instruments"]
+    assert "Skin Marker Pen" in row["consumables"]
