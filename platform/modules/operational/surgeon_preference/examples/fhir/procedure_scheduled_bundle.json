@@ -1,0 +1,90 @@
+{
+  "resourceType": "Bundle",
+  "type": "message",
+  "id": "bundle-procedure-scheduled-example",
+  "entry": [
+    {
+      "resource": {
+        "resourceType": "Patient",
+        "id": "example-patient",
+        "identifier": [
+          {
+            "system": "https://example.invalid/nhs-number",
+            "value": "9999999999"
+          }
+        ]
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Practitioner",
+        "id": "surgeon-001",
+        "name": [
+          {
+            "prefix": ["Mr"],
+            "given": ["Test"],
+            "family": "Surgeon"
+          }
+        ]
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "Appointment",
+        "id": "appointment-001",
+        "status": "booked",
+        "start": "2026-07-01T09:00:00Z",
+        "participant": [
+          {
+            "actor": {
+              "reference": "Patient/example-patient"
+            },
+            "status": "accepted"
+          },
+          {
+            "actor": {
+              "reference": "Practitioner/surgeon-001"
+            },
+            "status": "accepted"
+          }
+        ]
+      }
+    },
+    {
+      "resource": {
+        "resourceType": "ServiceRequest",
+        "id": "service-request-001",
+        "status": "active",
+        "intent": "order",
+        "subject": {
+          "reference": "Patient/example-patient"
+        },
+        "performer": [
+          {
+            "reference": "Practitioner/surgeon-001"
+          }
+        ],
+        "code": {
+          "coding": [
+            {
+              "system": "https://fhir.hl7.org.uk/CodeSystem/UKCore-OPCS4",
+              "code": "W40.1",
+              "display": "Total prosthetic replacement of knee joint using cement"
+            }
+          ],
+          "text": "Total Knee Replacement"
+        },
+        "bodySite": [
+          {
+            "text": "Left knee"
+          }
+        ],
+        "supportingInfo": [
+          {
+            "reference": "Appointment/appointment-001"
+          }
+        ]
+      }
+    }
+  ]
+}

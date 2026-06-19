@@ -174,3 +174,22 @@ Streamlit reads the current operational Gold file from MinIO and allows staff
 to save draft edits or new draft preference cards. Drafts are written to MinIO
 under `gold/operational/drafts/` with `pending_review` status. They are not
 silently promoted over the operational Gold card.
+
+## Azure And FHIR Learning Plan
+
+Before migrating this module to Azure, follow the guided plan in
+`docs/azure_migration_learning_plan.md`. It separates the current standalone
+medallion pipeline from the future EHR-integrated pipeline and explains where a
+FHIR adapter fits without replacing the internal surgeon preference-card domain
+model.
+
+The intended migration path has two phases:
+
+1. Standalone Azure pipeline for uploaded/synthetic preference-card data.
+2. EHR-integrated pipeline where FHIR messages are adapted into the same
+   internal preference-card event model.
+
+FHIR should be treated as the EHR integration boundary. It provides standard
+clinical context such as `ServiceRequest`, `Appointment`, `Encounter`,
+`Practitioner`, and `Procedure`; the theatre-specific preference-card model
+remains internal to this module.
