@@ -84,6 +84,11 @@ Run the local stack:
 docker compose up --build
 ```
 
+When inspecting the Docker Postgres database from a local GUI such as pgAdmin
+or DBeaver, connect to host `127.0.0.1` on port `5433` by default. The
+container still uses port `5432` internally, but the host port is shifted to
+avoid clashing with a native Postgres install on the laptop.
+
 ## Storage Layout
 
 ```text
