@@ -5,6 +5,7 @@ import re
 from datetime import datetime, UTC
 
 from config.paths import SILVER_A_DIR
+from config.pipeline_version import SILVER_SCHEMA_VERSION
 from silver_transform.silver_a.file_format_reader import FileReader
 
 
@@ -223,12 +224,19 @@ class SilverTransformer:
             "sutures": self.structural_items_json(content.get("sutures")),
             "dressings": self.structural_items_json(content.get("dressings")),
 
-            "version_number": self.safe_get(content.get("version", {}), "version"),
-            "version_updated_by": clean_text(self.safe_get(content.get("version", {}), "updated_by")),
+            "version_number": self.safe_get(content.get("version", {}), "version") or content.get("version_num"),
+            "version_updated_by": clean_text(
+                self.safe_get(content.get("version", {}), "updated_by")
+                or content.get("version_updated_by")
+            ),
+            "version_updated_at": clean_text(
+                self.safe_get(content.get("version", {}), "updated_at")
+                or content.get("version_updated_at")
+            ),
             "source_system": clean_text(content.get("source_system")),
 
             "processed_at": datetime.now(UTC).isoformat(),
-            "pipeline_version": "silver_a_v4",
+            "pipeline_version": SILVER_SCHEMA_VERSION,
         }
 
     # -----------------------------

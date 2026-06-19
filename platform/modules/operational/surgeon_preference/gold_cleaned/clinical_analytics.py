@@ -140,6 +140,7 @@ class ClinicalGoldAnalytics:
     # -----------------------------------------------------
     def full_report(self, records: List[Dict[str, Any]]) -> Dict[str, Any]:
         return {
+            "source_record_count": len(records),
             "surgeon_summary": self.surgeon_summary(records),
             "procedure_usage": self.procedure_usage(records),
             "system_usage": self.system_usage(records),

@@ -5,6 +5,8 @@ from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from config.pipeline_version import GOLD_SCHEMA_VERSION, SILVER_SCHEMA_VERSION
+
 
 class BronzeFileMetadata(BaseModel):
     run_id: str
@@ -59,9 +61,10 @@ class SilverClinicalRecord(BaseModel):
     special_instructions_notes: Optional[str] = None
     version_number: Optional[int] = None
     version_updated_by: Optional[str] = None
+    version_updated_at: Optional[datetime | str] = None
     source_system: Optional[str] = None
     processed_at: Optional[datetime | str] = None
-    pipeline_version: str = "silver_a_v4"
+    pipeline_version: str = SILVER_SCHEMA_VERSION
 
 
 class ClinicalValidationResult(BaseModel):
@@ -76,6 +79,15 @@ class OperationalPreferenceGold(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     surgeon_id: Optional[str] = None
+    preference_card_uid: Optional[str] = None
+    preference_card_version: Optional[int] = None
+    preference_card_version_label: Optional[str] = None
+    version_number: Optional[int] = None
+    version_updated_by: Optional[str] = None
+    version_updated_at: Optional[datetime | str] = None
+    is_current: bool = True
+    gold_schema_version: str = GOLD_SCHEMA_VERSION
+    data_product_version: Optional[str] = None
     surgeon_name: str
     hospital: str
     specialty: str
@@ -107,6 +119,7 @@ class OperationalPreferenceGold(BaseModel):
 
 
 class GoldAnalyticsSnapshot(BaseModel):
+    source_record_count: int = 0
     surgeon_summary: Dict[str, Any]
     procedure_usage: Dict[str, int]
     system_usage: Dict[str, int]

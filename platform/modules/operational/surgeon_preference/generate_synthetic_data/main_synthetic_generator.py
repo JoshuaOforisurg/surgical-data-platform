@@ -25,6 +25,7 @@ from generate_synthetic_data.clinical_mapping_logic import generate_clinical_map
 
 # Metadata
 from generate_synthetic_data import mock_data
+from domain.clinical_reference_service import ClinicalReferenceService
 
 # Messiness
 from generate_synthetic_data.messiness_generator import apply_messiness
@@ -84,6 +85,12 @@ def generate_single_card(
     specialty, subspecialty, procedure_data = generate_clinical_mapping()
     procedure_name = procedure_data["name"]
     profile = mock_data.CLINICAL_PREFERENCE_PROFILES[procedure_name]
+    reference_service = ClinicalReferenceService()
+    procedure_id = reference_service.resolve_procedure(procedure_name)
+    instruction_pool = (
+        reference_service.instructions_for_procedure(procedure_id)
+        or mock_data.SPECIAL_INSTRUCTIONS_POOL
+    )
 
     # ---------------------------------------------------------
     # 2. Surgeon
@@ -126,7 +133,7 @@ def generate_single_card(
     )
 
     special_instructions_obj = SpecialInstructions(
-        notes=random.choice(mock_data.SPECIAL_INSTRUCTIONS_POOL)
+        notes=random.choice(instruction_pool)
     )
 
     version_obj = PreferenceVersion(

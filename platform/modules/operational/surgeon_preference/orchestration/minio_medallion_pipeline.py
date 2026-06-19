@@ -12,6 +12,13 @@ from tempfile import TemporaryDirectory
 from typing import Any, Dict, Iterable, List
 
 from bronze_Ingestion.catalog import BronzeCatalogRepository
+from config.pipeline_version import (
+    ANALYTICS_DATA_PRODUCT_VERSION,
+    ANALYTICS_SCHEMA_VERSION,
+    DATA_PRODUCT_VERSION,
+    GOLD_SCHEMA_VERSION,
+    PIPELINE_VERSION,
+)
 from config.settings import PipelineSettings
 from gold_cleaned.clinical_analytics import ClinicalGoldAnalytics
 from gold_cleaned.operational_preference_card import OperationalPreferenceGoldBuilder
@@ -44,7 +51,12 @@ class MinIOMedallionPipeline:
         self.catalog.bootstrap_iceberg_catalog(
             warehouse_uri=f"s3://{self.settings.minio.bucket}/iceberg-warehouse"
         )
-        self.catalog.start_run(run_id, str(source_path))
+        self.catalog.start_run(
+            run_id,
+            str(source_path),
+            pipeline_version=PIPELINE_VERSION,
+            data_product_version=DATA_PRODUCT_VERSION,
+        )
 
         landed_files = self._land_source_files(source_path, run_id)
         all_raw_records: list[dict[str, Any]] = []
@@ -96,6 +108,11 @@ class MinIOMedallionPipeline:
 
             return {
                 "run_id": run_id,
+                "pipeline_version": PIPELINE_VERSION,
+                "data_product_version": DATA_PRODUCT_VERSION,
+                "gold_schema_version": GOLD_SCHEMA_VERSION,
+                "analytics_schema_version": ANALYTICS_SCHEMA_VERSION,
+                "analytics_data_product_version": ANALYTICS_DATA_PRODUCT_VERSION,
                 "files_landed": len(landed_files),
                 "records_processed": len(all_raw_records),
                 "gold_keys": gold_keys,
@@ -250,10 +267,29 @@ class MinIOMedallionPipeline:
                 ),
             },
         )
+        operational_artifacts = {
+            artifact_name: object_key
+            for artifact_name, object_key in keys.items()
+            if artifact_name.startswith("operational_")
+        }
+        analytics_artifacts = {
+            artifact_name: object_key
+            for artifact_name, object_key in keys.items()
+            if artifact_name.startswith("analytics_")
+        }
         self.catalog.register_gold_artifacts(
             run_id=run_id,
-            artifacts=keys,
+            artifacts=operational_artifacts,
             record_count=len(operational_rows),
+            schema_version=GOLD_SCHEMA_VERSION,
+            data_product_version=DATA_PRODUCT_VERSION,
+        )
+        self.catalog.register_gold_artifacts(
+            run_id=run_id,
+            artifacts=analytics_artifacts,
+            record_count=int(analytics_report.get("source_record_count") or 0),
+            schema_version=ANALYTICS_SCHEMA_VERSION,
+            data_product_version=ANALYTICS_DATA_PRODUCT_VERSION,
         )
 
         return keys
@@ -268,6 +304,11 @@ class MinIOMedallionPipeline:
         manifest = {
             "run_id": run_id,
             "created_at": datetime.now(UTC).isoformat(),
+            "pipeline_version": PIPELINE_VERSION,
+            "gold_schema_version": GOLD_SCHEMA_VERSION,
+            "data_product_version": DATA_PRODUCT_VERSION,
+            "analytics_schema_version": ANALYTICS_SCHEMA_VERSION,
+            "analytics_data_product_version": ANALYTICS_DATA_PRODUCT_VERSION,
             "landed_files": [
                 {
                     "file_id": str(item["file_id"]),

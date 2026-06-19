@@ -235,7 +235,10 @@ class ClinicalEnrichmentEngine:
         confidence = self.compute_confidence(procedure_id=procedure_id, validation_result=validation)
         validation["confidence"] = confidence
         raw_special_instruction = record.get("special_instructions_notes")
-        clean_special_instruction = self.reference_service.normalise_instruction(raw_special_instruction)
+        clean_special_instruction = self.reference_service.normalise_instruction_for_procedure(
+            raw_special_instruction,
+            procedure_id,
+        )
 
         # Inject quarantine trigger metadata
         is_quarantine_target = any("QUANTITY_ANOMALY" in f for f in validation["flags"])
