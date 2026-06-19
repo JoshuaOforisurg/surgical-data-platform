@@ -84,6 +84,17 @@ Run the local stack:
 docker compose up --build
 ```
 
+Create local secrets from the example template before running the stack:
+
+```bash
+cp .env.example .env
+```
+
+Fill `DB_PASSWORD` and `MINIO_ROOT_PASSWORD` in your local `.env` before
+starting Docker. Keep `.env` local only. It is ignored by Git and excluded from
+Docker build contexts so credentials are supplied at runtime instead of being
+committed or baked into images.
+
 When inspecting the Docker Postgres database from a local GUI such as pgAdmin
 or DBeaver, connect to host `127.0.0.1` on port `5433` by default. The
 container still uses port `5432` internally, but the host port is shifted to
