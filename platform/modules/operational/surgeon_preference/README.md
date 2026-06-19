@@ -92,13 +92,13 @@ avoid clashing with a native Postgres install on the laptop.
 ## Storage Layout
 
 ```text
-s3://surgical-data/landing/{run_id}/...
-s3://surgical-data/bronze/manifests/{run_id}.json
-s3://surgical-data/gold/operational/runs/{run_id}/gold_operational_preference_cards.csv
-s3://surgical-data/gold/operational/latest/gold_operational_preference_cards.csv
-s3://surgical-data/gold/analytics/runs/{run_id}/gold_analytics_report.json
-s3://surgical-data/gold/analytics/latest/gold_analytics_report.json
-s3://surgical-data/gold/operational/drafts/{timestamp}_{draft_id}.json
+s3://surgeon-preference/landing/{run_id}/...
+s3://surgeon-preference/bronze/manifests/{run_id}.json
+s3://surgeon-preference/gold/operational/runs/{run_id}/gold_operational_preference_cards.csv
+s3://surgeon-preference/gold/operational/latest/gold_operational_preference_cards.csv
+s3://surgeon-preference/gold/analytics/runs/{run_id}/gold_analytics_report.json
+s3://surgeon-preference/gold/analytics/latest/gold_analytics_report.json
+s3://surgeon-preference/gold/operational/drafts/{timestamp}_{draft_id}.json
 ```
 
 ## Postgres Schemas
@@ -135,7 +135,7 @@ The pipeline now bootstraps a Postgres-backed Iceberg SQL catalog and points
 the warehouse at MinIO:
 
 ```text
-s3://surgical-data/iceberg-warehouse
+s3://surgeon-preference/iceberg-warehouse
 ```
 
 This creates the catalogue metadata foundation needed for a future Azure-ready

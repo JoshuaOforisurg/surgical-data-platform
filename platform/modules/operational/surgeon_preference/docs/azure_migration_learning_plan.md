@@ -203,7 +203,7 @@ Learn:
 Map:
 
 ```text
-MinIO bucket surgical-data
+MinIO bucket surgeon-preference
     -> Azure Storage account + container
 
 landing/run_id/file.json

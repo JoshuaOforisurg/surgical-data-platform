@@ -34,8 +34,8 @@ EDITABLE_FIELDS = [
 # ----------------------------
 # APP CONFIG
 # ----------------------------
-st.set_page_config(page_title="Surgical Data Platform", layout="wide")
-st.title("Surgical Preference Platform")
+st.set_page_config(page_title="Surgeon Preference Pipeline", layout="wide")
+st.title("Surgeon Preference Pipeline")
 
 # ----------------------------
 # LOAD OPERATIONAL GOLD DATA (SAFE)
@@ -347,14 +347,14 @@ with metadata_tab:
     postgres_metadata = load_postgres_metadata()
     postgres_health = postgres_metadata["health"]
 
-    st.subheader("Postgres metadata catalogue")
+    st.subheader("Surgeon preference metadata catalogue")
     pg_col_1, pg_col_2, pg_col_3 = st.columns(3)
     pg_col_1.metric("Reachable", "Yes" if postgres_health.get("reachable") else "No")
     pg_col_2.metric("Schema valid", "Yes" if postgres_health.get("valid") else "No")
     pg_col_3.metric("Missing tables", len(postgres_health.get("missing_tables", [])))
 
     if not postgres_health.get("valid"):
-        st.warning(postgres_health.get("message", "Postgres metadata catalogue is not aligned."))
+        st.warning(postgres_health.get("message", "Surgeon preference metadata catalogue is not aligned."))
         if postgres_health.get("missing_tables"):
             st.dataframe(
                 pd.DataFrame({"missing_table": postgres_health["missing_tables"]}),

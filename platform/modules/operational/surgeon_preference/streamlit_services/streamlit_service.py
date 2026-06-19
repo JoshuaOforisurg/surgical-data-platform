@@ -39,7 +39,7 @@ class MinIOClient(StorageClient):
         self.endpoint = os.getenv("MINIO_ENDPOINT")
         self.access_key = os.getenv("MINIO_ROOT_USER")
         self.secret_key = os.getenv("MINIO_ROOT_PASSWORD")
-        self.bucket = os.getenv("MINIO_BUCKET", "surgical-data")
+        self.bucket = os.getenv("MINIO_BUCKET", "surgeon-preference")
 
         if not self.endpoint:
             raise ValueError("MINIO_ENDPOINT is required for local MinIO mode")
@@ -98,7 +98,7 @@ class MinIOClient(StorageClient):
 class AzureBlobStorageClient(StorageClient):
     def __init__(self):
         self.conn_str = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
-        self.container_name = os.getenv("AZURE_CONTAINER_NAME", "surgical-data")
+        self.container_name = os.getenv("AZURE_CONTAINER_NAME", "surgeon-preference")
 
         if not self.conn_str:
             raise ValueError("AZURE_STORAGE_CONNECTION_STRING is required for Azure mode")

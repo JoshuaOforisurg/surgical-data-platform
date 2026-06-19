@@ -104,7 +104,7 @@ def load_settings() -> PipelineSettings:
             endpoint=minio_endpoint or "http://localhost:9000",
             access_key=_env("MINIO_ROOT_USER") or _env("MINIO_ACCESS_KEY") or "minioadmin",
             secret_key=_env("MINIO_ROOT_PASSWORD") or _env("MINIO_SECRET_KEY") or "minioadmin",
-            bucket=_env("MINIO_BUCKET", "surgical-data") or "surgical-data",
+            bucket=_env("MINIO_BUCKET", "surgeon-preference") or "surgeon-preference",
             landing_prefix=_env("MINIO_LANDING_PREFIX", "landing") or "landing",
             bronze_prefix=_env("MINIO_BRONZE_PREFIX", "bronze") or "bronze",
             silver_prefix=_env("MINIO_SILVER_PREFIX", "silver") or "silver",
