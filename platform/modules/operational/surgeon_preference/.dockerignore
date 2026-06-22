@@ -14,3 +14,9 @@ data_lake/
 logs/
 generate_synthetic_data/output/
 silver_transform/silver_a/data/
+bronze_Ingestion/failed_ingestions/*.jsonl
+bronze_Ingestion/storage/
+bronze_Ingestion/synthetic_data/
+bronze_Ingestion/master_preferences.csv
+synthetic_data/
+*.pdf
