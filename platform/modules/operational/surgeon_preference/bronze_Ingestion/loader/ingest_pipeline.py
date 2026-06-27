@@ -14,12 +14,12 @@ def main() -> None:
     configure_logging(settings.project_root / "logs", logging.INFO)
 
     parser = argparse.ArgumentParser(
-        description="Compatibility CLI for the MinIO-backed surgeon preference pipeline."
+        description="Compatibility CLI for the surgeon preference medallion pipeline."
     )
     parser.add_argument(
         "--source",
         default=str(settings.default_input_path),
-        help="Input file or directory to land into MinIO.",
+        help="Input file or directory to land into object storage.",
     )
     args = parser.parse_args()
 

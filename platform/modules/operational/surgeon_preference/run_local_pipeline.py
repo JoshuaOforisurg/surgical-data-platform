@@ -15,7 +15,7 @@ def main() -> None:
     pipeline = MinIOMedallionPipeline(settings)
     result = pipeline.run(Path(settings.default_input_path))
 
-    print("\nLOCAL MINIO PIPELINE COMPLETE")
+    print("\nLOCAL PIPELINE COMPLETE")
     print(f"Run ID: {result['run_id']}")
     print(f"Files landed: {result['files_landed']}")
     print(f"Records processed: {result['records_processed']}")

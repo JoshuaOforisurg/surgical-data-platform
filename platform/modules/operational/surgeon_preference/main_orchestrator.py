@@ -15,12 +15,12 @@ def main() -> None:
     logger = configure_logging(settings.project_root / "logs", logging.INFO)
 
     parser = argparse.ArgumentParser(
-        description="Run the production surgeon preference MinIO medallion pipeline."
+        description="Run the production surgeon preference medallion pipeline."
     )
     parser.add_argument(
         "--source",
         default=str(settings.default_input_path),
-        help="Input file or directory to land into MinIO before processing.",
+        help="Input file or directory to land into object storage before processing.",
     )
     parser.add_argument(
         "--synthetic-count",

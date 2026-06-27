@@ -10,9 +10,9 @@ def run_pipeline(source_path: str | None = None) -> dict:
     """
     Backwards-compatible entry point.
 
-    The supported pipeline now lands source files in MinIO, registers bronze
-    metadata in Postgres, transforms to silver/gold, and publishes gold back to
-    MinIO for Streamlit.
+    The supported pipeline lands source files in object storage, registers
+    bronze metadata in Postgres, transforms to silver/gold, and publishes gold
+    back to object storage for Streamlit.
     """
     settings = load_settings()
     pipeline = MinIOMedallionPipeline(settings)

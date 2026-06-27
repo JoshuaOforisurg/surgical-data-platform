@@ -8,7 +8,7 @@ Production-oriented local pipeline for messy surgeon preference data.
 Synthetic or uploaded source files
         |
         v
-MinIO landing/
+Object storage landing/
         |
         v
 Postgres bronze ledger
@@ -26,7 +26,7 @@ Silver B clinical enrichment and validation
 Gold operational preference cards + Gold analytics snapshot
         |
         v
-MinIO gold/
+Object storage gold/
         |
         v
 Streamlit reads gold/operational/latest/gold_operational_preference_cards.csv
@@ -102,15 +102,32 @@ avoid clashing with a native Postgres install on the laptop.
 
 ## Storage Layout
 
+The same logical prefixes are used in local MinIO and Azure Blob Storage.
+Locally, URIs are recorded as `s3://...`. When
+`AZURE_STORAGE_CONNECTION_STRING` is set, the pipeline writes to Azure Blob and
+records URIs as `azblob://...`.
+
 ```text
-s3://surgeon-preference/landing/{run_id}/...
-s3://surgeon-preference/bronze/manifests/{run_id}.json
-s3://surgeon-preference/gold/operational/runs/{run_id}/gold_operational_preference_cards.csv
-s3://surgeon-preference/gold/operational/latest/gold_operational_preference_cards.csv
-s3://surgeon-preference/gold/analytics/runs/{run_id}/gold_analytics_report.json
-s3://surgeon-preference/gold/analytics/latest/gold_analytics_report.json
-s3://surgeon-preference/gold/operational/drafts/{timestamp}_{draft_id}.json
+landing/{run_id}/...
+bronze/manifests/{run_id}.json
+gold/operational/runs/{run_id}/gold_operational_preference_cards.csv
+gold/operational/latest/gold_operational_preference_cards.csv
+gold/analytics/runs/{run_id}/gold_analytics_report.json
+gold/analytics/latest/gold_analytics_report.json
+gold/operational/drafts/{timestamp}_{draft_id}.json
 ```
+
+To run the pipeline against Azure Blob from your laptop, set the Azure storage
+environment variables before running the normal pipeline command:
+
+```bash
+export AZURE_STORAGE_CONNECTION_STRING="<your Azure storage connection string>"
+export AZURE_CONTAINER_NAME="surgeon-preference"
+python main_orchestrator.py --source examples --use-existing-synthetic
+```
+
+After the run, the Azure container should contain objects under `landing/`,
+`bronze/`, `gold/operational/latest/`, and `gold/analytics/latest/`.
 
 ## Postgres Schemas
 
@@ -143,16 +160,17 @@ from iceberg_catalog.catalog_bootstrap;
 ## Iceberg Status
 
 The pipeline now bootstraps a Postgres-backed Iceberg SQL catalog and points
-the warehouse at MinIO:
+the warehouse at the active object store:
 
 ```text
 s3://surgeon-preference/iceberg-warehouse
+azblob://surgeon-preference/iceberg-warehouse
 ```
 
 This creates the catalogue metadata foundation needed for a future Azure-ready
 lakehouse. The current production path still writes Bronze metadata to
-Postgres and publishes operational/analytics Gold files to MinIO. Writing
-Silver and Gold as Iceberg tables is the next storage-hardening step.
+Postgres and publishes operational/analytics Gold files to object storage.
+Writing Silver and Gold as Iceberg tables is the next storage-hardening step.
 
 ## Clinical Reference Scaling
 
@@ -186,10 +204,10 @@ in smaller catalogue modules.
 
 ## Frontline Drafts
 
-Streamlit reads the current operational Gold file from MinIO and allows staff
-to save draft edits or new draft preference cards. Drafts are written to MinIO
-under `gold/operational/drafts/` with `pending_review` status. They are not
-silently promoted over the operational Gold card.
+Streamlit reads the current operational Gold file from object storage and
+allows staff to save draft edits or new draft preference cards. Drafts are
+written under `gold/operational/drafts/` with `pending_review` status. They are
+not silently promoted over the operational Gold card.
 
 ## Azure And FHIR Learning Plan
 

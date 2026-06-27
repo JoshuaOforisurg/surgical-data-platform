@@ -49,7 +49,7 @@ class MinIOMedallionPipeline:
         self.object_store.wait_until_ready()
         self.catalog.initialise()
         self.catalog.bootstrap_iceberg_catalog(
-            warehouse_uri=f"s3://{self.settings.minio.bucket}/iceberg-warehouse"
+            warehouse_uri=self.object_store.uri("iceberg-warehouse")
         )
         self.catalog.start_run(
             run_id,
@@ -150,7 +150,7 @@ class MinIOMedallionPipeline:
             )
             metadata = {
                 "run_id": run_id,
-                "bucket": self.settings.minio.bucket,
+                "bucket": self.object_store.bucket,
                 "object_key": object_key,
                 "object_uri": object_uri,
                 "original_filename": file_path.name,
@@ -339,9 +339,9 @@ class MinIOMedallionPipeline:
             self.catalog.register_object(
                 {
                     "run_id": run_id,
-                    "bucket": self.settings.minio.bucket,
+                    "bucket": self.object_store.bucket,
                     "object_key": object_key,
-                    "object_uri": f"s3://{self.settings.minio.bucket}/{object_key}",
+                    "object_uri": self.object_store.uri(object_key),
                     "layer": layer,
                     "artifact_type": artifact_type,
                     "content_type": content_type,

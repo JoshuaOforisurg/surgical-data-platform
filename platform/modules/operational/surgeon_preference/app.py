@@ -188,7 +188,7 @@ def load_postgres_metadata() -> dict:
 df = load_gold_data()
 
 if df is None or df.empty:
-    st.warning("No Gold data found in MinIO. Run pipeline first.")
+    st.warning("No Gold data found in object storage. Run the pipeline first.")
     st.stop()
 
 # ----------------------------
