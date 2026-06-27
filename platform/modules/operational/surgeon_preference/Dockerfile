@@ -21,4 +21,4 @@ RUN poetry config virtualenvs.create false \
 
 COPY . .
 
-CMD ["python", "main_orchestrator.py"]
+CMD ["streamlit", "run", "app.py", "--server.address=0.0.0.0", "--server.port=8501"]
