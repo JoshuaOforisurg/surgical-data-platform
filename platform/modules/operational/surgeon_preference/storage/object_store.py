@@ -24,6 +24,13 @@ def _normalise_metadata(metadata: Optional[dict[str, str]]) -> dict[str, str]:
     return clean
 
 
+def _env_value(name: str) -> Optional[str]:
+    value = os.getenv(name)
+    if value is None:
+        return None
+    return value.strip().strip("\"'")
+
+
 class ObjectStoreClient:
     """Provider-switching object store client.
 
@@ -33,7 +40,7 @@ class ObjectStoreClient:
 
     def __new__(cls, settings: MinIOSettings):
         if cls is ObjectStoreClient:
-            if os.getenv("AZURE_STORAGE_CONNECTION_STRING"):
+            if _env_value("AZURE_STORAGE_CONNECTION_STRING"):
                 return AzureBlobObjectStoreClient(settings)
             return S3ObjectStoreClient(settings)
         return super().__new__(cls)
@@ -147,8 +154,8 @@ class AzureBlobObjectStoreClient:
 
     def __init__(self, settings: MinIOSettings):
         self.settings = settings
-        self.bucket = os.getenv("AZURE_CONTAINER_NAME") or settings.bucket
-        connection_string = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
+        self.bucket = _env_value("AZURE_CONTAINER_NAME") or settings.bucket
+        connection_string = _env_value("AZURE_STORAGE_CONNECTION_STRING")
         if not connection_string:
             raise ValueError("AZURE_STORAGE_CONNECTION_STRING is required for Azure Blob mode")
 

@@ -10,6 +10,13 @@ from azure.storage.blob import BlobServiceClient, ContentSettings
 load_dotenv(find_dotenv())
 
 
+def _env_value(name: str, default: str | None = None) -> str | None:
+    value = os.getenv(name, default)
+    if value is None:
+        return None
+    return value.strip().strip("\"'")
+
+
 # 1. Abstract Base Class (The Interface)
 class StorageClient(ABC):
     @abstractmethod
@@ -97,8 +104,8 @@ class MinIOClient(StorageClient):
 # 3. Azure Production Implementation
 class AzureBlobStorageClient(StorageClient):
     def __init__(self):
-        self.conn_str = os.getenv("AZURE_STORAGE_CONNECTION_STRING")
-        self.container_name = os.getenv("AZURE_CONTAINER_NAME", "surgeon-preference")
+        self.conn_str = _env_value("AZURE_STORAGE_CONNECTION_STRING")
+        self.container_name = _env_value("AZURE_CONTAINER_NAME", "surgeon-preference")
 
         if not self.conn_str:
             raise ValueError("AZURE_STORAGE_CONNECTION_STRING is required for Azure mode")
@@ -135,6 +142,6 @@ def get_storage_client() -> StorageClient:
     Dynamically returns the Azure client if the Azure connection string is present.
     Otherwise, defaults to the local MinIO client.
     """
-    if os.getenv("AZURE_STORAGE_CONNECTION_STRING"):
+    if _env_value("AZURE_STORAGE_CONNECTION_STRING"):
         return AzureBlobStorageClient()
     return MinIOClient()
