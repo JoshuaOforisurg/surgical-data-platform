@@ -217,6 +217,11 @@ medallion pipeline from the future EHR-integrated pipeline and explains where a
 FHIR adapter fits without replacing the internal surgeon preference-card domain
 model.
 
+For the first cloud automation step, use
+`docs/azure_data_factory_automation.md`. It explains the `incoming/` upload
+prefix and how Azure Data Factory should start the containerized batch
+pipeline.
+
 The intended migration path has two phases:
 
 1. Standalone Azure pipeline for uploaded/synthetic preference-card data.

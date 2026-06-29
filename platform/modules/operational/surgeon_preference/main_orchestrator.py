@@ -4,10 +4,12 @@ import argparse
 import json
 import logging
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 from bronze_Ingestion.catalog import BronzeCatalogRepository
 from config.logging_config import configure_logging
 from config.settings import load_settings
+from storage.object_store import ObjectStoreClient
 
 
 def main() -> None:
@@ -21,6 +23,13 @@ def main() -> None:
         "--source",
         default=str(settings.default_input_path),
         help="Input file or directory to land into object storage before processing.",
+    )
+    parser.add_argument(
+        "--source-object-key",
+        help=(
+            "Object storage key to download and process, for example "
+            "incoming/master_preferences.json. Used by cloud automation."
+        ),
     )
     parser.add_argument(
         "--synthetic-count",
@@ -59,6 +68,31 @@ def main() -> None:
         return
 
     source_path = Path(args.source)
+    if args.source_object_key:
+        object_store = ObjectStoreClient(settings.minio)
+        with TemporaryDirectory() as tmpdir:
+            local_source = Path(tmpdir) / Path(args.source_object_key).name
+            logger.info(
+                "Downloading source object key=%s to %s",
+                args.source_object_key,
+                local_source,
+            )
+            object_store.download_file(args.source_object_key, local_source)
+
+            from orchestration.minio_medallion_pipeline import MinIOMedallionPipeline
+
+            pipeline = MinIOMedallionPipeline(settings)
+            result = pipeline.run(local_source)
+
+        logger.info(
+            "Run complete | run_id=%s | files=%s | records=%s | gold_key=%s",
+            result["run_id"],
+            result["files_landed"],
+            result["records_processed"],
+            result["gold_keys"]["operational_latest_csv"],
+        )
+        return
+
     if source_path == settings.default_input_path and not args.use_existing_synthetic:
         from generate_synthetic_data.main_synthetic_generator import generate_batch
 
