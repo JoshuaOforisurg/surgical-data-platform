@@ -471,16 +471,16 @@ view_tab, edit_tab, create_tab, metadata_tab = st.tabs(
 
 def render_card(card: dict) -> None:
     st.markdown(
-        f"""
-<section class="sp-card-head">
-  <h2>{safe_html(card.get("surgeon_name"), "Unknown Surgeon")}</h2>
-  <div class="sp-card-meta">
-    <span class="sp-chip">Hospital: {safe_html(card.get("hospital"))}</span>
-    <span class="sp-chip">Specialty: {safe_html(card.get("specialty"))}</span>
-    <span class="sp-chip">Procedures: {len(card.get("procedures", []))}</span>
-  </div>
-</section>
-        """,
+        (
+            '<section class="sp-card-head">'
+            f'<h2>{safe_html(card.get("surgeon_name"), "Unknown Surgeon")}</h2>'
+            '<div class="sp-card-meta">'
+            f'<span class="sp-chip">Hospital: {safe_html(card.get("hospital"))}</span>'
+            f'<span class="sp-chip">Specialty: {safe_html(card.get("specialty"))}</span>'
+            f'<span class="sp-chip">Procedures: {len(card.get("procedures", []))}</span>'
+            "</div>"
+            "</section>"
+        ),
         unsafe_allow_html=True,
     )
 
@@ -507,24 +507,22 @@ def render_card(card: dict) -> None:
             ("Skin prep", p.get("skin_prep")),
             ("Special instructions", p.get("special_instructions")),
         ]
-        fields_html = "\n".join(
-            f"""
-    <div class="sp-field">
-      <div class="sp-label">{safe_html(label)}</div>
-      <div class="sp-value">{safe_html(value)}</div>
-    </div>
-            """
+        fields_html = "".join(
+            (
+                '<div class="sp-field">'
+                f'<div class="sp-label">{safe_html(label)}</div>'
+                f'<div class="sp-value">{safe_html(value)}</div>'
+                "</div>"
+            )
             for label, value in field_rows
         )
         st.markdown(
-            f"""
-<section class="sp-procedure">
-  <h3>{safe_html(p.get("procedure"), "Unknown Procedure")}</h3>
-  <div class="sp-grid">
-{fields_html}
-  </div>
-</section>
-            """,
+            (
+                '<section class="sp-procedure">'
+                f'<h3>{safe_html(p.get("procedure"), "Unknown Procedure")}</h3>'
+                f'<div class="sp-grid">{fields_html}</div>'
+                "</section>"
+            ),
             unsafe_allow_html=True,
         )
 
