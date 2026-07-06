@@ -14,6 +14,33 @@ All modules follow the same engineering lifecycle and share a common core.
 
 ---
 
+## Current module status
+
+### Completed Version 1 modules
+
+- **Surgeon Preference Pipeline**
+  Version 1 is complete as a standalone operational data product. It now runs
+  locally and in Azure, with a Dockerized Streamlit frontend, a dedicated
+  Container App Job for scheduled/manual batch execution, Azure Blob Storage
+  outputs, Azure Postgres metadata and audit tables, Azure Data Factory
+  orchestration, and a secured custom domain.
+
+  Current ingestion mode: scheduled/manual synthetic batch ingestion. The Azure
+  job generates 1000 clinically aligned source files, processes them through
+  landing, bronze, silver, and gold layers, and publishes the latest operational
+  preference cards for review.
+
+### Next planned module
+
+- **Stock & Inventory Management Pipeline**
+  This is the recommended next pipeline because it connects naturally to surgeon
+  preferences. Surgeon preference cards describe expected procedure demand;
+  inventory data will show actual consumable, implant, and tray availability.
+  Together, both modules can support shortage detection, substitution review,
+  reorder planning, and theatre readiness workflows.
+
+---
+
 ## Platform architecture
 
 ### Core layer
