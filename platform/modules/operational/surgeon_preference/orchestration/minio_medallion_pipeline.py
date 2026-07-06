@@ -178,7 +178,7 @@ class MinIOMedallionPipeline:
         if source_path.is_file():
             return [source_path]
         if source_path.is_dir():
-            return sorted(path for path in source_path.iterdir() if path.is_file())
+            return sorted(path for path in source_path.rglob("*") if path.is_file())
         raise FileNotFoundError(f"Source path does not exist: {source_path}")
 
     def _extract_records(self, local_path: Path) -> List[Dict[str, Any]]:

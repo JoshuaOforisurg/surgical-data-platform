@@ -2,6 +2,37 @@
 
 Production-oriented local pipeline for messy surgeon preference data.
 
+## Version 1 Status
+
+Version 1 of the Surgeon Preference pipeline is complete as a standalone
+operational data product.
+
+The pipeline now runs locally and in Azure as a scheduled/manual batch
+workflow. In the current Azure learning setup, Azure Data Factory starts a
+Container App Job. The job generates 1000 clinically aligned synthetic source
+files, processes them through the medallion pipeline, writes audit metadata to
+Postgres, publishes Gold outputs to Azure Blob Storage, and serves the latest
+operational preference cards through Streamlit.
+
+Completed Version 1 capabilities:
+
+```text
+Synthetic clinical source generation at 1000-file scale
+Landing, Bronze, Silver A, Silver B, and Gold processing
+Clinical reference enrichment and validation
+Postgres metadata, audit, and catalogue schemas
+Cloud-agnostic object storage abstraction for MinIO and Azure Blob
+Dockerized Streamlit web app
+Dedicated Dockerized batch job image
+Azure Blob, Azure Postgres, ACR, Container Apps, and ADF integration
+Versioned Gold outputs and latest operational views for Streamlit
+```
+
+The next platform pipeline should build on this work rather than expand this
+module further. The recommended next data product is stock/inventory
+management, because it can combine with surgeon preferences to support theatre
+readiness, shortage detection, substitutions, and reorder planning.
+
 ## Current Architecture
 
 ```text
@@ -62,6 +93,23 @@ Use the existing synthetic file without regeneration:
 python main_orchestrator.py --use-existing-synthetic
 ```
 
+Process every object under an object-storage prefix, which is the default
+cloud mode for uploaded-file automation:
+
+```bash
+python main_orchestrator.py --source-object-prefix incoming/
+```
+
+Run the Azure Container App Job style synthetic scale test. This generates
+1000 individual source files and then processes the generated directory:
+
+```bash
+python main_orchestrator.py \
+  --synthetic-count 1000 \
+  --synthetic-output-mode partitioned \
+  --synthetic-file-formats json,csv
+```
+
 Generate synthetic cards directly:
 
 ```bash
@@ -118,12 +166,14 @@ gold/operational/drafts/{timestamp}_{draft_id}.json
 ```
 
 To run the pipeline against Azure Blob from your laptop, set the Azure storage
-environment variables before running the normal pipeline command:
+environment variables before running the normal pipeline command. Use
+`--source-object-prefix incoming/` to process all uploaded incoming files, or
+`--source-object-key incoming/master_preferences.json` to process one file:
 
 ```bash
 export AZURE_STORAGE_CONNECTION_STRING="<your Azure storage connection string>"
 export AZURE_CONTAINER_NAME="surgeon-preference"
-python main_orchestrator.py --source examples --use-existing-synthetic
+python main_orchestrator.py --source-object-prefix incoming/
 ```
 
 After the run, the Azure container should contain objects under `landing/`,

@@ -32,6 +32,14 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--source-object-prefix",
+        help=(
+            "Object storage prefix to download and process as a batch, for example "
+            "incoming/. Used by cloud automation when multiple uploaded files should "
+            "be processed in one run."
+        ),
+    )
+    parser.add_argument(
         "--synthetic-count",
         type=int,
         default=settings.synthetic_record_count,
@@ -68,6 +76,9 @@ def main() -> None:
         return
 
     source_path = Path(args.source)
+    if args.source_object_key and args.source_object_prefix:
+        raise SystemExit("Use either --source-object-key or --source-object-prefix, not both.")
+
     if args.source_object_key:
         object_store = ObjectStoreClient(settings.minio)
         with TemporaryDirectory() as tmpdir:
@@ -83,6 +94,48 @@ def main() -> None:
 
             pipeline = MinIOMedallionPipeline(settings)
             result = pipeline.run(local_source)
+
+        logger.info(
+            "Run complete | run_id=%s | files=%s | records=%s | gold_key=%s",
+            result["run_id"],
+            result["files_landed"],
+            result["records_processed"],
+            result["gold_keys"]["operational_latest_csv"],
+        )
+        return
+
+    if args.source_object_prefix:
+        object_store = ObjectStoreClient(settings.minio)
+        prefix = args.source_object_prefix.rstrip("/") + "/"
+        object_keys = [
+            key for key in object_store.list_objects(prefix) if not key.rstrip().endswith("/")
+        ]
+        if not object_keys:
+            raise FileNotFoundError(f"No source objects found under prefix: {prefix}")
+
+        with TemporaryDirectory() as tmpdir:
+            local_source_dir = Path(tmpdir) / "source_objects"
+            local_source_dir.mkdir(parents=True, exist_ok=True)
+            logger.info(
+                "Downloading %s source objects from prefix=%s to %s",
+                len(object_keys),
+                prefix,
+                local_source_dir,
+            )
+            for object_key in object_keys:
+                relative_key = object_key.removeprefix(prefix).lstrip("/")
+                safe_parts = [
+                    part for part in Path(relative_key).parts if part not in {"", ".", ".."}
+                ]
+                local_name = Path(*safe_parts) if safe_parts else Path(object_key).name
+                local_path = local_source_dir / local_name
+                logger.info("Downloading source object key=%s to %s", object_key, local_path)
+                object_store.download_file(object_key, local_path)
+
+            from orchestration.minio_medallion_pipeline import MinIOMedallionPipeline
+
+            pipeline = MinIOMedallionPipeline(settings)
+            result = pipeline.run(local_source_dir)
 
         logger.info(
             "Run complete | run_id=%s | files=%s | records=%s | gold_key=%s",

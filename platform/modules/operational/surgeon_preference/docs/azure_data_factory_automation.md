@@ -6,7 +6,7 @@ pipeline.
 ## Target Flow
 
 ```text
-Upload source file to Azure Blob incoming/
+ADF starts the scheduled/manual test run
         |
         v
 Azure Data Factory trigger starts
@@ -15,7 +15,7 @@ Azure Data Factory trigger starts
 Container App Job runs the pipeline image
         |
         v
-Pipeline downloads incoming/{file}
+Pipeline generates 1000 partitioned synthetic source files
         |
         v
 Pipeline writes managed outputs:
@@ -28,20 +28,27 @@ gold/analytics/latest/
 Streamlit reads gold/operational/latest/
 ```
 
-Use `incoming/` for user or EHR uploads. Do not trigger on `landing/`, because
-the pipeline writes to `landing/` itself.
+Use `incoming/` later for user or EHR uploads. Do not trigger on `landing/`,
+because the pipeline writes to `landing/` itself.
 
 ## Container Command
 
-The same Docker image can run the Streamlit app or the batch pipeline. For
-automation, run this command inside a Container App Job:
+Use the dedicated job image for automation. For the current learning/dev
+workflow, it generates a realistic 1000-file synthetic batch and then runs the
+normal medallion pipeline:
 
 ```bash
-python main_orchestrator.py --source-object-key incoming/master_preferences.json
+python main_orchestrator.py \
+  --synthetic-count 1000 \
+  --synthetic-output-mode partitioned \
+  --synthetic-file-formats json,csv
 ```
 
-For a dynamic ADF trigger, replace `incoming/master_preferences.json` with the
-blob path supplied by the trigger event.
+This creates 1000 individual source files inside the container, alternating
+between JSON and CSV, then lands and processes them in one run. A later dynamic
+event-driven version can use `--source-object-prefix incoming/` or
+`--source-object-key incoming/{file}` when the pipeline should process uploaded
+or EHR-triggered files instead of generating synthetic data.
 
 ## Required Environment Variables
 
@@ -62,19 +69,8 @@ when `AZURE_STORAGE_CONNECTION_STRING` is present.
 
 ## First Manual Test
 
-1. Upload a test file to Azure Blob:
-
-```text
-surgeon-preference/incoming/master_preferences.json
-```
-
-2. Run the container job with:
-
-```bash
-python main_orchestrator.py --source-object-key incoming/master_preferences.json
-```
-
-3. Confirm Azure Blob contains fresh objects under:
+1. Start the Container App Job from ADF or manually in Azure.
+2. Confirm Azure Blob contains fresh objects under:
 
 ```text
 landing/
@@ -83,7 +79,16 @@ gold/operational/latest/
 gold/analytics/latest/
 ```
 
+3. In `landing/{run_id}/`, confirm there are many generated source files.
 4. Open Streamlit and confirm it loads the latest Gold operational card file.
+5. Query Postgres and confirm the latest run registered many source files:
+
+```sql
+select run_id, original_filename, object_key, created_at
+from bronze_raw.ingested_files
+order by created_at desc
+limit 20;
+```
 
 ## ADF Setup
 
@@ -91,8 +96,10 @@ Start simple:
 
 1. Create a Data Factory.
 2. Add an Azure Blob Storage linked service for the same storage account.
-3. Add a trigger for new files under `incoming/`.
+3. Start with a manual or scheduled trigger for synthetic batch testing.
 4. Add a pipeline activity that starts the Container App Job.
-5. Pass the incoming blob path to the job command.
+5. Start with the job image default command, which generates and processes the
+   1000-file synthetic batch. Later, pass the incoming blob path or prefix
+   dynamically when you want event-level upload processing.
 
 After that works, add failure alerts and a quarantine path for invalid uploads.

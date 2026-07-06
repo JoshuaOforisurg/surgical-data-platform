@@ -20,4 +20,4 @@ RUN poetry config virtualenvs.create false \
 
 COPY . .
 
-CMD ["python", "main_orchestrator.py", "--source-object-key", "incoming/master_preferences.json"]
+CMD ["python", "main_orchestrator.py", "--synthetic-count", "1000", "--synthetic-output-mode", "partitioned", "--synthetic-file-formats", "json,csv"]
