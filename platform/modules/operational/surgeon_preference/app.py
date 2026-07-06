@@ -450,7 +450,6 @@ if "surgeon_name" not in df.columns:
 current_df = current_preference_rows(df)
 surgeons = current_df["surgeon_name"].dropna().unique().tolist()
 procedures_count = current_df["procedure"].nunique() if "procedure" in current_df else 0
-draft_keys = get_storage_client().list_objects(DRAFT_PREFIX)
 
 st.markdown(
     """
@@ -625,6 +624,7 @@ with metadata_tab:
     st.metric("Current cards", len(current_df))
     st.metric("Surgeons", current_df["surgeon_name"].nunique())
     st.metric("Procedures", current_df["procedure"].nunique() if "procedure" in current_df else 0)
+    draft_keys = get_storage_client().list_objects(DRAFT_PREFIX)
     st.metric("Drafts pending", len(draft_keys))
     if draft_keys:
         st.dataframe(pd.DataFrame({"draft_key": draft_keys[-25:]}), use_container_width=True)
