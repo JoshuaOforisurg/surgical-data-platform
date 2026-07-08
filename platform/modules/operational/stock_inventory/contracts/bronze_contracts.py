@@ -7,6 +7,7 @@ from typing import Any
 @dataclass(frozen=True)
 class BronzeSourceFile:
     run_id: str
+    source_file_id: str
     dataset: str
     source_path: str
     raw_path: str
@@ -14,6 +15,7 @@ class BronzeSourceFile:
     file_extension: str
     size_bytes: int
     checksum_sha256: str
+    canonical_for_silver: bool
     ingested_at: str
 
     def to_dict(self) -> dict[str, Any]:
@@ -24,9 +26,12 @@ class BronzeSourceFile:
 class BronzeRecord:
     record_id: str
     run_id: str
+    source_file_id: str
+    source_checksum_sha256: str
     dataset: str
     source_file: str
     source_format: str
+    canonical_for_silver: bool
     source_row_number: int
     ingested_at: str
     raw_payload: dict[str, Any]
@@ -46,4 +51,3 @@ class BronzeIngestionResult:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
-

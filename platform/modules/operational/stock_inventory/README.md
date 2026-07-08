@@ -60,3 +60,14 @@ python3 bronze_ingestion/loader/bronze_pipeline.py \
 The bronze run copies original files to `data_lake/bronze/raw/<run_id>/`,
 writes auditable wrapped records to `data_lake/bronze/records/<run_id>/`, and
 publishes a run manifest to `data_lake/bronze/manifests/<run_id>.json`.
+
+Bronze runs are append-only: an existing `run_id` is never overwritten. When a
+directory contains multiple representations of the same dataset, such as CSV and
+JSON, all raw files are landed but one source is marked `canonical_for_silver`
+using the default priority `jsonl,json,csv`. Override that with:
+
+```bash
+python3 bronze_ingestion/loader/bronze_pipeline.py \
+  --source synthetic_data/generated \
+  --canonical-format-priority jsonl,json,csv
+```
