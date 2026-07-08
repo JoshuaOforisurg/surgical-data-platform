@@ -1,0 +1,74 @@
+[
+  {
+    "location_id": "LOC-STOCK-01",
+    "hospital": "Northbank Orthopaedic Centre",
+    "location_name": "Main Theatre Sterile Store",
+    "location_type": "stockroom",
+    "sterile_store": true,
+    "barcode_enabled": true
+  },
+  {
+    "location_id": "LOC-STOCK-02",
+    "hospital": "Northbank Orthopaedic Centre",
+    "location_name": "Orthopaedic Implant Store",
+    "location_type": "stockroom",
+    "sterile_store": true,
+    "barcode_enabled": true
+  },
+  {
+    "location_id": "LOC-STOCK-03",
+    "hospital": "Local NHS Trust",
+    "location_name": "Day Surgery Store",
+    "location_type": "stockroom",
+    "sterile_store": false,
+    "barcode_enabled": true
+  },
+  {
+    "location_id": "LOC-STOCK-04",
+    "hospital": "Local NHS Trust",
+    "location_name": "Trauma Emergency Cupboard",
+    "location_type": "stockroom",
+    "sterile_store": false,
+    "barcode_enabled": false
+  },
+  {
+    "location_id": "LOC-STOCK-05",
+    "hospital": "Riverside Elective Surgical Hub",
+    "location_name": "Vendor Loan Kit Holding Bay",
+    "location_type": "stockroom",
+    "sterile_store": false,
+    "barcode_enabled": true
+  },
+  {
+    "location_id": "LOC-THEATRE-01",
+    "hospital": "Local NHS Trust",
+    "location_name": "Theatre 1 - Orthopaedic Elective",
+    "location_type": "theatre",
+    "sterile_store": false,
+    "barcode_enabled": true
+  },
+  {
+    "location_id": "LOC-THEATRE-02",
+    "hospital": "Local NHS Trust",
+    "location_name": "Theatre 2 - Trauma",
+    "location_type": "theatre",
+    "sterile_store": false,
+    "barcode_enabled": true
+  },
+  {
+    "location_id": "LOC-THEATRE-03",
+    "hospital": "Local NHS Trust",
+    "location_name": "Theatre 3 - Day Case",
+    "location_type": "theatre",
+    "sterile_store": false,
+    "barcode_enabled": false
+  },
+  {
+    "location_id": "LOC-THEATRE-04",
+    "hospital": "Local NHS Trust",
+    "location_name": "Theatre 4 - Laminar Flow",
+    "location_type": "theatre",
+    "sterile_store": false,
+    "barcode_enabled": true
+  }
+]

@@ -1,0 +1,49 @@
+substitution_rule_id,preferred_item_id,preferred_item_name,substitute_item_id,substitute_item_name,substitution_type,approval_required,applies_to_subspecialty,clinical_notes
+SUB-0001,INV-SUTU-MONOCRYL_3_0,Monocryl 3-0,INV-SUTU-VICRYL_0,Vicryl 0,requires_approval,False,Any,Equivalent product on current local contract.
+SUB-0002,INV-SUTU-VICRYL_0,Vicryl 0,INV-SUTU-ETHILON_3_0,Ethilon 3-0,requires_approval,True,Sports Medicine,Confirm with scrub practitioner before opening.
+SUB-0003,INV-SUTU-PDS_II_2_0,PDS II 2-0,INV-SUTU-TIGERWIRE_2,TigerWire #2,compatible,False,Sports Medicine,Confirm with scrub practitioner before opening.
+SUB-0004,INV-SUTU-PDS_II_0,PDS II 0,INV-SUTU-FIBERWIRE_5,FiberWire #5,compatible,True,Trauma,Confirm with scrub practitioner before opening.
+SUB-0005,INV-SUTU-TIGERWIRE_2,TigerWire #2,INV-SUTU-VICRYL_2_0,Vicryl 2-0,fallback,True,Any,Requires surgeon approval for implant-adjacent use.
+SUB-0006,INV-SUTU-MONOCRYL_5_0,Monocryl 5-0,INV-SUTU-PDS_II_1,PDS II 1,requires_approval,False,Any,Equivalent product on current local contract.
+SUB-0007,INV-SUTU-MONOCRYL_4_0,Monocryl 4-0,INV-SUTU-PROLENE_3_0,Prolene 3-0,fallback,True,Foot and Ankle,Use only when preferred stock unavailable.
+SUB-0008,INV-SUTU-FIBERWIRE_5,FiberWire #5,INV-SUTU-ETHIBOND_EXCEL_5,Ethibond Excel #5,requires_approval,True,Sports Medicine,Equivalent product on current local contract.
+SUB-0009,INV-SUTU-PDS_II_1,PDS II 1,INV-SUTU-NYLON_3_0,Nylon 3-0,fallback,True,Joint Replacement,Confirm with scrub practitioner before opening.
+SUB-0010,INV-SUTU-NYLON_3_0,Nylon 3-0,INV-SUTU-ETHIBOND_EXCEL_5,Ethibond Excel #5,compatible,False,Trauma,Confirm with scrub practitioner before opening.
+SUB-0011,INV-SUTU-VICRYL_1,Vicryl 1,INV-SUTU-PDS_II_0,PDS II 0,equivalent,True,Joint Replacement,Equivalent product on current local contract.
+SUB-0012,INV-SUTU-SUTURETAPE_1_3MM,SutureTape 1.3mm,INV-SUTU-MONOCRYL_4_0,Monocryl 4-0,fallback,False,Sports Medicine,Requires surgeon approval for implant-adjacent use.
+SUB-0013,INV-DRES-JELONET,Jelonet,INV-DRES-PRIMAPORE,Primapore,fallback,True,Any,Confirm with scrub practitioner before opening.
+SUB-0014,INV-DRES-TEGADERM_FOAM,Tegaderm Foam,INV-DRES-JELONET,Jelonet,fallback,True,Any,Confirm with scrub practitioner before opening.
+SUB-0015,INV-DRES-OPSITE_POST_OP,Opsite Post-Op,INV-DRES-WOOL_AND_CREPE,Wool and Crepe,compatible,False,Joint Replacement,Equivalent product on current local contract.
+SUB-0016,INV-DRES-AQUACEL_SURGICAL,Aquacel Surgical,INV-DRES-MEPORE,Mepore,equivalent,True,Joint Replacement,Confirm with scrub practitioner before opening.
+SUB-0017,INV-DRES-PRIMAPORE,Primapore,INV-DRES-AQUACEL_AG,Aquacel Ag,equivalent,False,Hand Surgery,Requires surgeon approval for implant-adjacent use.
+SUB-0018,INV-DRES-OPSITE_FLEXIFIX,Opsite Flexifix,INV-DRES-STERI_STRIPS_6MM,Steri-Strips 6mm,equivalent,False,Trauma,Equivalent product on current local contract.
+SUB-0019,INV-DRES-MEPORE,Mepore,INV-DRES-TEGADERM_FOAM,Tegaderm Foam,equivalent,False,Foot and Ankle,Use only when preferred stock unavailable.
+SUB-0020,INV-DRES-WOOL_AND_CREPE,Wool and Crepe,INV-DRES-STERI_STRIPS_6MM,Steri-Strips 6mm,fallback,True,Sports Medicine,Confirm with scrub practitioner before opening.
+SUB-0021,INV-DRES-CREPE_BANDAGE,Crepe Bandage,INV-DRES-TEGADERM_FOAM,Tegaderm Foam,equivalent,False,Foot and Ankle,Confirm with scrub practitioner before opening.
+SUB-0022,INV-DRES-AQUACEL_AG,Aquacel Ag,INV-DRES-AQUACEL_SURGICAL,Aquacel Surgical,compatible,False,Joint Replacement,Use only when preferred stock unavailable.
+SUB-0023,INV-DRES-TUBIGRIP_SIZE_C,Tubigrip Size C,INV-DRES-STERI_STRIPS_6MM,Steri-Strips 6mm,equivalent,True,Joint Replacement,Use only when preferred stock unavailable.
+SUB-0024,INV-DRES-STERI_STRIPS_12MM,Steri-Strips 12mm,INV-DRES-TUBIGRIP_SIZE_B,Tubigrip Size B,compatible,True,Trauma,Requires surgeon approval for implant-adjacent use.
+SUB-0025,INV-CONS-BLADDER_SYRINGE,Bladder Syringe,INV-CONS-PULSE_LAVAGE_TIP,Pulse Lavage Tip,equivalent,False,Trauma,Confirm with scrub practitioner before opening.
+SUB-0026,INV-CONS-LIGHT_HANDLE_COVERS,Light Handle Covers,INV-CONS-SUCTION_TUBING,Suction Tubing,requires_approval,False,Any,Requires surgeon approval for implant-adjacent use.
+SUB-0027,INV-CONS-SUCTION_YANKAUER_TIP,Suction Yankauer Tip,INV-CONS-SCALPEL_BLADE_10,Scalpel Blade #10,requires_approval,False,Any,Requires surgeon approval for implant-adjacent use.
+SUB-0028,INV-CONS-PULSE_LAVAGE_TIP,Pulse Lavage Tip,INV-CONS-STERILE_GOWN,Sterile Gown,compatible,False,Trauma,Use only when preferred stock unavailable.
+SUB-0029,INV-CONS-ULTRASOUND_GEL,Ultrasound Gel,INV-CONS-DIATHERMY_TIP,Diathermy Tip,compatible,False,Hand Surgery,Use only when preferred stock unavailable.
+SUB-0030,INV-CONS-DIATHERMY_PENCIL,Diathermy Pencil,INV-CONS-ULTRASOUND_GEL,Ultrasound Gel,requires_approval,False,Sports Medicine,Requires surgeon approval for implant-adjacent use.
+SUB-0031,INV-CONS-BONE_CEMENT_MIXING_BOWL_KIT,Bone Cement Mixing Bowl Kit,INV-CONS-LOCAL_ANAESTHETIC_SYRINGE,Local Anaesthetic Syringe,equivalent,True,Joint Replacement,Requires surgeon approval for implant-adjacent use.
+SUB-0032,INV-CONS-IRRIGATION_FLUID_0_9_SALINE_3L,Irrigation Fluid 0.9% Saline 3L,INV-CONS-DIATHERMY_PENCIL,Diathermy Pencil,compatible,True,Any,Confirm with scrub practitioner before opening.
+SUB-0033,INV-CONS-SUTURE_REMOVAL_KIT,Suture Removal Kit,INV-CONS-CHLORHEXIDINE_2_APPLICATOR,Chlorhexidine 2% Applicator,compatible,False,Foot and Ankle,Requires surgeon approval for implant-adjacent use.
+SUB-0034,INV-CONS-SCALPEL_BLADE_10,Scalpel Blade #10,INV-CONS-BETADINE_PREP_SOLUTION,Betadine Prep Solution,fallback,False,Hand Surgery,Use only when preferred stock unavailable.
+SUB-0035,INV-CONS-STERILE_GLOVES_PAIR,Sterile Gloves (Pair),INV-CONS-SURGICAL_PATTIES,Surgical Patties,requires_approval,True,Trauma,Confirm with scrub practitioner before opening.
+SUB-0036,INV-CONS-LOCAL_ANAESTHETIC_SYRINGE,Local Anaesthetic Syringe,INV-CONS-DIATHERMY_TIP,Diathermy Tip,requires_approval,False,Any,Requires surgeon approval for implant-adjacent use.
+SUB-0037,INV-DISP-DISPOSABLE_FEMORAL_CANAL_BRUSH,Disposable Femoral Canal Brush,INV-DISP-DISPOSABLE_SAW_BLADE_RECIPROCA,Disposable Saw Blade - Reciprocating,compatible,False,Joint Replacement,Confirm with scrub practitioner before opening.
+SUB-0038,INV-DISP-SURGICAL_PATTIES,Surgical Patties,INV-DISP-DISPOSABLE_DRILL_BIT_4_5MM,Disposable Drill Bit 4.5mm,compatible,False,Trauma,Equivalent product on current local contract.
+SUB-0039,INV-DISP-CEMENT_MIXING_CARTRIDGE,Cement Mixing Cartridge,INV-DISP-SURGICAL_PATTIES,Surgical Patties,requires_approval,False,Any,Requires surgeon approval for implant-adjacent use.
+SUB-0040,INV-DISP-DISPOSABLE_TROCAR_SET,Disposable Trocar Set,INV-DISP-DISPOSABLE_REAMER_LARGE,Disposable Reamer - Large,compatible,False,Trauma,Requires surgeon approval for implant-adjacent use.
+SUB-0041,INV-DISP-CEMENT_DELIVERY_GUN_NOZZLE,Cement Delivery Gun Nozzle,INV-DISP-DISPOSABLE_REAMER_LARGE,Disposable Reamer - Large,requires_approval,True,Joint Replacement,Equivalent product on current local contract.
+SUB-0042,INV-DISP-DISPOSABLE_SAW_BLADE_RECIPROCA,Disposable Saw Blade - Reciprocating,INV-DISP-DISPOSABLE_DRILL_BIT_3_2MM,Disposable Drill Bit 3.2mm,fallback,True,Joint Replacement,Use only when preferred stock unavailable.
+SUB-0043,INV-DISP-DISPOSABLE_SAW_BLADE_OSCILLATI,Disposable Saw Blade – Oscillating,INV-DISP-CEMENT_DELIVERY_GUN_NOZZLE,Cement Delivery Gun Nozzle,compatible,False,Joint Replacement,Use only when preferred stock unavailable.
+SUB-0044,INV-DISP-SCALPEL_BLADE_15,Scalpel Blade #15,INV-DISP-DISPOSABLE_SAW_BLADE_RECIPROCA,Disposable Saw Blade - Reciprocating,compatible,True,Foot and Ankle,Equivalent product on current local contract.
+SUB-0045,INV-DISP-DISPOSABLE_BURR_4_0MM,Disposable Burr 4.0mm,INV-DISP-DISPOSABLE_SAW_BLADE_OSCILLATI,Disposable Saw Blade – Oscillating,fallback,True,Foot and Ankle,Equivalent product on current local contract.
+SUB-0046,INV-DISP-STEINMANN_PIN_4_0MM,Steinmann Pin 4.0mm,INV-DISP-DISPOSABLE_CANNULA_SET,Disposable Cannula Set,requires_approval,False,Joint Replacement,Use only when preferred stock unavailable.
+SUB-0047,INV-DISP-DISPOSABLE_REAMER_SMALL,Disposable Reamer – Small,INV-DISP-CEMENT_MIXING_CARTRIDGE,Cement Mixing Cartridge,equivalent,False,Hand Surgery,Use only when preferred stock unavailable.
+SUB-0048,INV-DISP-DISPOSABLE_CANNULA_SET,Disposable Cannula Set,INV-DISP-STEINMANN_PIN_4_0MM,Steinmann Pin 4.0mm,requires_approval,False,Hand Surgery,Confirm with scrub practitioner before opening.

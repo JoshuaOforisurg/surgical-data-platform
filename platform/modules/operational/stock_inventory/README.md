@@ -1,0 +1,49 @@
+# Stock & Inventory Management Pipeline
+
+Production-minded operational data product for surgical theatre stock readiness,
+shortage detection, substitutions, reorder planning, and usage/cost analysis.
+
+This module is intentionally shaped as a sibling of the completed
+`surgeon_preference` pipeline v1. The first implementation step is a clinically
+aligned synthetic data generator that uses the existing surgeon preference
+procedure profiles as its source of expected theatre demand.
+
+## Planned Architecture
+
+```text
+Synthetic, spreadsheet, scanner, ERP, vendor, and theatre usage sources
+        |
+        v
+Object storage landing/
+        |
+        v
+Bronze raw file and record ledger
+        |
+        v
+Silver A structural normalisation
+        |
+        v
+Silver B item catalogue, lot, location, substitution, and safety enrichment
+        |
+        v
+Gold operational readiness, shortages, reorder planning, and analytics
+```
+
+## Current Step
+
+Generate source-like stock data:
+
+Outputs are written to `synthetic_data/generated/` by default and include:
+
+```text
+item_catalogue.csv/json
+stock_lots.csv/json
+erp_stock_balances.csv/json
+manual_stocktake_spreadsheet.csv/json
+scanner_stock_events.jsonl/csv
+stock_movements.csv/json
+upcoming_case_demand.csv/json
+supplier_catalogue.csv/json
+substitution_rules.csv/json
+generation_manifest.json
+```

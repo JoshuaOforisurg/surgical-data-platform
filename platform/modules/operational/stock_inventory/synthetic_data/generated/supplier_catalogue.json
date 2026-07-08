@@ -1,0 +1,74 @@
+[
+  {
+    "supplier_id": "SUP-STRYKER",
+    "supplier_name": "Stryker UK",
+    "preferred_ingestion_mode": "scanner_api",
+    "standard_lead_time_days": 2,
+    "minimum_order_value_gbp": 0,
+    "emergency_order_available": true,
+    "contract_status": "contracted"
+  },
+  {
+    "supplier_id": "SUP-DEPUY",
+    "supplier_name": "DePuy Synthes",
+    "preferred_ingestion_mode": "erp_export",
+    "standard_lead_time_days": 14,
+    "minimum_order_value_gbp": 250,
+    "emergency_order_available": true,
+    "contract_status": "vendor_managed"
+  },
+  {
+    "supplier_id": "SUP-ARTHREX",
+    "supplier_name": "Arthrex",
+    "preferred_ingestion_mode": "erp_export",
+    "standard_lead_time_days": 2,
+    "minimum_order_value_gbp": 250,
+    "emergency_order_available": true,
+    "contract_status": "contracted"
+  },
+  {
+    "supplier_id": "SUP-SN",
+    "supplier_name": "Smith & Nephew",
+    "preferred_ingestion_mode": "erp_export",
+    "standard_lead_time_days": 3,
+    "minimum_order_value_gbp": 250,
+    "emergency_order_available": true,
+    "contract_status": "framework"
+  },
+  {
+    "supplier_id": "SUP-MEDTRONIC",
+    "supplier_name": "Medtronic",
+    "preferred_ingestion_mode": "vendor_portal",
+    "standard_lead_time_days": 2,
+    "minimum_order_value_gbp": 50,
+    "emergency_order_available": true,
+    "contract_status": "contracted"
+  },
+  {
+    "supplier_id": "SUP-ZIMMER",
+    "supplier_name": "Zimmer Biomet",
+    "preferred_ingestion_mode": "vendor_portal",
+    "standard_lead_time_days": 3,
+    "minimum_order_value_gbp": 500,
+    "emergency_order_available": true,
+    "contract_status": "framework"
+  },
+  {
+    "supplier_id": "SUP-NHS-SUPPLY",
+    "supplier_name": "NHS Supply Chain",
+    "preferred_ingestion_mode": "spreadsheet_upload",
+    "standard_lead_time_days": 3,
+    "minimum_order_value_gbp": 50,
+    "emergency_order_available": false,
+    "contract_status": "framework"
+  },
+  {
+    "supplier_id": "SUP-UNISURGE",
+    "supplier_name": "Unisurge",
+    "preferred_ingestion_mode": "spreadsheet_upload",
+    "standard_lead_time_days": 5,
+    "minimum_order_value_gbp": 0,
+    "emergency_order_available": false,
+    "contract_status": "framework"
+  }
+]
