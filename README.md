@@ -1,5 +1,20 @@
 # Surgical Data Platform
 
+## Portfolio Snapshot
+
+This repository is a healthcare data engineering portfolio project built from
+real operating theatre experience. It demonstrates how surgical workflow
+problems can be translated into modular data pipelines, auditable data products,
+and cloud-deployed operational tools.
+
+The first completed module is the **Surgeon Preference Pipeline**, a version 1
+operational data product that processes synthetic surgeon preference data
+through landing, bronze, silver, and gold layers, publishes preference-card
+outputs, and serves them through a Dockerized Streamlit app running on Azure.
+
+> This project uses synthetic data only. It does not contain real patient data,
+> staff data, theatre lists, or hospital confidential information.
+
 ## Description
 
 This platform is a unified, modular data platform for operating theatre operations, intelligence, and AI training.
@@ -11,6 +26,22 @@ From my personal experience working in the operating theatre, I found the "hidde
 - AI and robotics training data  
 
 All modules follow the same engineering lifecycle and share a common core.
+
+## Why This Project Matters
+
+Operating theatres generate valuable operational signals, but much of the work
+is still fragmented across preference cards, stock checks, manual documents,
+device systems, EHR events, and informal local knowledge. This platform explores
+how data engineering can support safer and more efficient surgical operations
+by making theatre data structured, traceable, and reusable.
+
+The platform is intentionally built from a clinical operations perspective:
+
+- surgeon preferences affect theatre readiness and case flow
+- stock and implant availability affect delays and substitutions
+- theatre utilisation depends on clean event and workflow data
+- audit trails matter for clinical trust and operational review
+- synthetic data is needed for safe development before real integrations
 
 ---
 
@@ -38,6 +69,31 @@ All modules follow the same engineering lifecycle and share a common core.
   inventory data will show actual consumable, implant, and tray availability.
   Together, both modules can support shortage detection, substitution review,
   reorder planning, and theatre readiness workflows.
+
+---
+
+## Completed Surgeon Preference Pipeline V1
+
+The Surgeon Preference module currently demonstrates:
+
+- synthetic clinical source generation at 1000-file scale
+- JSON and CSV source ingestion
+- landing, bronze, silver A, silver B, and gold processing
+- clinical reference enrichment and validation
+- FHIR example adapter for scheduled procedure messages
+- PostgreSQL schemas for bronze metadata, pipeline audit, object catalogue, gold
+  artifact tracking, and Iceberg catalogue bootstrap
+- cloud-agnostic object storage abstraction for local MinIO and Azure Blob
+- Dockerized Streamlit frontend for operational preference-card review
+- dedicated Dockerized batch job image for pipeline execution
+- Azure Blob Storage, Azure PostgreSQL, Azure Container Registry, Azure
+  Container Apps, and Azure Data Factory orchestration learning path
+- custom-domain deployment and revision/image troubleshooting
+
+Current ingestion mode is scheduled/manual synthetic batch ingestion. The next
+engineering milestone is to connect the Surgeon Preference output to a Stock &
+Inventory Management pipeline so preference-card demand can be compared against
+stock, implant, tray, and supplier availability.
 
 ---
 
@@ -163,7 +219,7 @@ All Azure resources are provisioned using Infrastructure-as-Code to ensure repro
 Recommended tools:
 
 - Terraform (industry-standard, cloud-agnostic)  
-- or **Bicep (Azure-native)
+- or **Bicep** (Azure-native)
 
 #### IaC responsibilities
 
@@ -249,6 +305,23 @@ All modules follow the same lifecycle:
 
 ---
 
+## Repository Hygiene And Security
+
+- `.env` files are ignored and should never be committed.
+- `.env.example` contains placeholders only.
+- The project uses synthetic data for development and demonstration.
+- Local secrets should be supplied through environment variables.
+- Cloud secrets should be supplied through Azure Container App secrets or Azure
+  Key Vault in a production setup.
+- Generated caches, Mac system files, and local scratch files are excluded from
+  the portfolio surface.
+
+---
+
 ## Author
 
-GitHub: **JoshuaOforisurg**
+Joshua Ofori Donkor
+
+- GitHub: **JoshuaOforisurg**
+- Portfolio focus: surgical operations, biomedical science, theatre workflow,
+  and healthcare data engineering

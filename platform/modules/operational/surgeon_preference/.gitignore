@@ -12,6 +12,8 @@ venv/
 
 data/
 data_lake/
+output/
+tmp/
 generate_synthetic_data/output/
 silver_transform/silver_a/data/
 bronze_Ingestion/failed_ingestions/*.jsonl

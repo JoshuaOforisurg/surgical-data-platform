@@ -52,7 +52,7 @@ def inject_theme() -> None:
     }
 
     .stApp {
-        background: linear-gradient(180deg, #f7fbff 0%, #eef5fb 45%, #ffffff 100%);
+        background: #f5f9fc;
         color: var(--sp-text);
     }
 
@@ -63,25 +63,25 @@ def inject_theme() -> None:
 
     .block-container {
         max-width: 1280px;
-        padding-top: 1.5rem;
+        padding-top: 1.25rem;
         padding-bottom: 3rem;
     }
 
     h1 {
         color: var(--sp-dark-blue);
-        background: var(--sp-white);
-        border-left: 7px solid var(--sp-blue);
-        border-bottom: 1px solid var(--sp-border);
-        padding: 1rem 1.2rem;
-        box-shadow: 0 10px 24px rgba(0, 48, 135, 0.08);
+        background: transparent;
+        border: 0;
+        padding: 0.25rem 0 0.6rem;
+        box-shadow: none;
     }
 
     h2, h3 {
         color: var(--sp-dark-blue);
+        margin-top: 1.15rem;
     }
 
     div[data-testid="stAlert"] {
-        border-left: 5px solid var(--sp-blue);
+        border: 1px solid #b7dcff;
         background: var(--sp-pale-blue);
         color: var(--sp-dark-blue);
     }
@@ -92,17 +92,16 @@ def inject_theme() -> None:
     }
 
     .stTabs [data-baseweb="tab"] {
-        background: var(--sp-white);
-        border: 1px solid var(--sp-border);
-        border-bottom: 0;
+        background: transparent;
+        border: 0;
         color: var(--sp-dark-blue);
         font-weight: 700;
-        padding: 0.65rem 0.9rem;
+        padding: 0.65rem 0.85rem;
     }
 
     .stTabs [aria-selected="true"] {
-        background: var(--sp-blue);
-        color: var(--sp-white);
+        background: var(--sp-pale-blue);
+        color: var(--sp-dark-blue);
     }
 
     [data-testid="stMetric"] {
@@ -140,11 +139,22 @@ def inject_theme() -> None:
     }
 
     div[data-testid="stMarkdownContainer"] ul {
-        background: var(--sp-white);
-        border-left: 4px solid var(--sp-blue);
-        padding-top: 0.75rem;
-        padding-bottom: 0.75rem;
-        box-shadow: 0 6px 16px rgba(0, 48, 135, 0.05);
+        background: transparent;
+        border: 0;
+        box-shadow: none;
+        list-style: none;
+        margin: 0.25rem 0 1.1rem;
+        padding: 0;
+    }
+
+    div[data-testid="stMarkdownContainer"] li {
+        border-bottom: 1px solid #e1e8ed;
+        padding: 0.38rem 0;
+        margin: 0;
+    }
+
+    div[data-testid="stMarkdownContainer"] li:last-child {
+        border-bottom: 0;
     }
 
     [data-testid="stDataFrame"] {

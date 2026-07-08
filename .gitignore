@@ -20,6 +20,11 @@ Thumbs.db
 logs/
 *.log
 
+# Local application/document exports
+*.pdf
+*.docx
+Screenshot*.png
+
 # Virtual environments
 *.egg-info/
 dist/
