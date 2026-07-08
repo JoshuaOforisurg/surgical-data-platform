@@ -47,3 +47,16 @@ supplier_catalogue.csv/json
 substitution_rules.csv/json
 generation_manifest.json
 ```
+
+## Bronze Ingestion
+
+Land generated or source-like files into the local bronze layer:
+
+```bash
+python3 bronze_ingestion/loader/bronze_pipeline.py \
+  --source synthetic_data/generated
+```
+
+The bronze run copies original files to `data_lake/bronze/raw/<run_id>/`,
+writes auditable wrapped records to `data_lake/bronze/records/<run_id>/`, and
+publishes a run manifest to `data_lake/bronze/manifests/<run_id>.json`.
