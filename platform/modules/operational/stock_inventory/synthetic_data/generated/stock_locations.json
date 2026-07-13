@@ -1,7 +1,7 @@
 [
   {
     "location_id": "LOC-STOCK-01",
-    "hospital": "Northbank Orthopaedic Centre",
+    "hospital": "Riverside Elective Surgical Hub",
     "location_name": "Main Theatre Sterile Store",
     "location_type": "stockroom",
     "sterile_store": true,
@@ -9,7 +9,7 @@
   },
   {
     "location_id": "LOC-STOCK-02",
-    "hospital": "Northbank Orthopaedic Centre",
+    "hospital": "Riverside Elective Surgical Hub",
     "location_name": "Orthopaedic Implant Store",
     "location_type": "stockroom",
     "sterile_store": true,
@@ -17,7 +17,7 @@
   },
   {
     "location_id": "LOC-STOCK-03",
-    "hospital": "Local NHS Trust",
+    "hospital": "Riverside Elective Surgical Hub",
     "location_name": "Day Surgery Store",
     "location_type": "stockroom",
     "sterile_store": false,
@@ -33,7 +33,7 @@
   },
   {
     "location_id": "LOC-STOCK-05",
-    "hospital": "Riverside Elective Surgical Hub",
+    "hospital": "Northbank Orthopaedic Centre",
     "location_name": "Vendor Loan Kit Holding Bay",
     "location_type": "stockroom",
     "sterile_store": false,

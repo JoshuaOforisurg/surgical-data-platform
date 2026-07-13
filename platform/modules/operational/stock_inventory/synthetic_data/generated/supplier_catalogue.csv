@@ -1,9 +1,9 @@
 supplier_id,supplier_name,preferred_ingestion_mode,standard_lead_time_days,minimum_order_value_gbp,emergency_order_available,contract_status
-SUP-STRYKER,Stryker UK,scanner_api,2,0,True,contracted
-SUP-DEPUY,DePuy Synthes,erp_export,14,250,True,vendor_managed
-SUP-ARTHREX,Arthrex,erp_export,2,250,True,contracted
-SUP-SN,Smith & Nephew,erp_export,3,250,True,framework
-SUP-MEDTRONIC,Medtronic,vendor_portal,2,50,True,contracted
-SUP-ZIMMER,Zimmer Biomet,vendor_portal,3,500,True,framework
-SUP-NHS-SUPPLY,NHS Supply Chain,spreadsheet_upload,3,50,False,framework
-SUP-UNISURGE,Unisurge,spreadsheet_upload,5,0,False,framework
+SUP-STRYKER,Stryker UK,scanner_api,2,50,True,vendor_managed
+SUP-DEPUY,DePuy Synthes,epr_export,14,250,True,framework
+SUP-ARTHREX,Arthrex,epr_export,7,100,True,contracted
+SUP-SN,Smith & Nephew,epr_export,5,0,True,contracted
+SUP-MEDTRONIC,Medtronic,vendor_portal,2,250,True,framework
+SUP-ZIMMER,Zimmer Biomet,vendor_portal,2,0,True,framework
+SUP-NHS-SUPPLY,NHS Supply Chain,spreadsheet_upload,5,50,False,framework
+SUP-UNISURGE,Unisurge,spreadsheet_upload,3,100,False,framework

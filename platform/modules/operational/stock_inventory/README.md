@@ -48,6 +48,22 @@ substitution_rules.csv/json
 generation_manifest.json
 ```
 
+Generate a fresh source bundle:
+
+```bash
+python3 generate_synthetic_data/main_synthetic_stock_generator.py \
+  --output-dir synthetic_data/generated \
+  --event-count 250 \
+  --movement-count 250 \
+  --case-count 25 \
+  --seed 42
+```
+
+The generator uses a fixed default `--run-date` for reproducibility. Pass a
+different ISO-8601 run date when you want a new anchored synthetic day. Use
+`--print-manifest` to print the full manifest JSON; otherwise the CLI prints a
+short summary and writes the data files to disk.
+
 ## Bronze Ingestion
 
 Land generated or source-like files into the local bronze layer:

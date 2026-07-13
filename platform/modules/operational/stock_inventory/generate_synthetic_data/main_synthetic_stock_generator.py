@@ -1,42 +1,69 @@
 from __future__ import annotations
-
 import argparse
 import csv
 import hashlib
+import importlib.util
 import json
 import random
-import sys
 from dataclasses import asdict, dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Iterable
+from typing import Any, Final, Iterable, NamedTuple
+
+# ==============================================================================
+# PATH CONFIGURATION
+# ========================================================================
+# Using Final type hints ensures these structural boundaries cannot be accidentally overwritten
+MODULE_ROOT: Final[Path] = Path(__file__).resolve().parents[1]
+OPERATIONAL_ROOT: Final[Path] = MODULE_ROOT.parent
+
+# Clean up structural path generation using absolute definitions
+SURGEON_PREFERENCE_DIR: Final[Path] = OPERATIONAL_ROOT / "surgeon_preference"
+CATALOGUE_DIR: Final[Path] = SURGEON_PREFERENCE_DIR / "generate_synthetic_data" / "catalogue"
 
 
-MODULE_ROOT = Path(__file__).resolve().parents[1]
-OPERATIONAL_ROOT = MODULE_ROOT.parent
-SURGEON_PREFERENCE_ROOT = OPERATIONAL_ROOT / "surgeon_preference"
-DEFAULT_OUTPUT_DIR = MODULE_ROOT / "synthetic_data" / "generated"
+# ==============================================================================
+# SIMULATION SETTINGS
+# ==============================================================================
+class GeneratorConfig(NamedTuple):
+    """Immutable structure holding default execution settings for the simulation."""
+    output_dir: Path = MODULE_ROOT / "synthetic_data" / "generated"
+    run_date: datetime = datetime(2026, 7, 8, tzinfo=timezone.utc)
+    event_count: int = 250
+    movement_count: int = 250
+    case_count: int = 25
+
+# Instantiate default settings
+DEFAULTS = GeneratorConfig()
+DEFAULT_OUTPUT_DIR: Final[Path] = DEFAULTS.output_dir
+DEFAULT_RUN_DATE: Final[datetime] = DEFAULTS.run_date
+DEFAULT_EVENT_COUNT: Final[int] = DEFAULTS.event_count
+DEFAULT_MOVEMENT_COUNT: Final[int] = DEFAULTS.movement_count
+DEFAULT_CASE_COUNT: Final[int] = DEFAULTS.case_count
+
+def load_catalogue_module(module_name: str, file_name: str) -> Any:
+    module_path = CATALOGUE_DIR / file_name
+    spec = importlib.util.spec_from_file_location(module_name, module_path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"Unable to load catalogue module: {module_path}")
+
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
-def ensure_dependency_paths() -> None:
-    for path in (OPERATIONAL_ROOT, SURGEON_PREFERENCE_ROOT):
-        path_value = str(path)
-        if path_value not in sys.path:
-            sys.path.insert(0, path_value)
+clinical_profiles = load_catalogue_module("surgeon_preference_catalogue_clinical_profiles", "clinical_profiles.py")
+procedures = load_catalogue_module("surgeon_preference_catalogue_procedures", "procedures.py")
+supplies = load_catalogue_module("surgeon_preference_catalogue_supplies", "supplies.py")
+surgeons = load_catalogue_module("surgeon_preference_catalogue_surgeons", "surgeons.py")
 
-
-ensure_dependency_paths()
-from surgeon_preference.generate_synthetic_data.catalogue.clinical_profiles import (  # noqa: E402
-    CLINICAL_PREFERENCE_PROFILES,
-)
-from surgeon_preference.generate_synthetic_data.catalogue.procedures import PROCEDURES  # noqa: E402
-from surgeon_preference.generate_synthetic_data.catalogue.supplies import (  # noqa: E402
-    CONSUMABLES_ITEMS,
-    DISPOSABLES_ITEMS,
-    DRESSING_OPTIONS,
-    SUTURE_NAMES,
-)
-from surgeon_preference.generate_synthetic_data.catalogue.surgeons import SURGEON_NAMES  # noqa: E402
+CLINICAL_PREFERENCE_PROFILES = clinical_profiles.CLINICAL_PREFERENCE_PROFILES
+PROCEDURES = procedures.PROCEDURES
+CONSUMABLES_ITEMS = supplies.CONSUMABLES_ITEMS
+DISPOSABLES_ITEMS = supplies.DISPOSABLES_ITEMS
+DRESSING_OPTIONS = supplies.DRESSING_OPTIONS
+SUTURE_NAMES = supplies.SUTURE_NAMES
+SURGEON_NAMES = surgeons.SURGEON_NAMES
 
 HOSPITALS = [
     "Local NHS Trust",
@@ -71,11 +98,10 @@ SUPPLIERS = [
 ]
 
 MANUAL_STOCKTAKE_STAFF = [
-    "Scrub Practitioner",
     "Theatre Stores Coordinator",
-    "Implant Coordinator",
-    "Theatre Support Worker",
-    "Senior ODP",
+    "Stock and Procurement Manager",
+    "Team Leader",
+    "Deputy Team Leader",
 ]
 
 ITEM_TYPE_ORDER = [
@@ -93,8 +119,27 @@ ITEM_TYPE_ORDER = [
 @dataclass(frozen=True)
 class GenerationConfig:
     output_dir: Path = DEFAULT_OUTPUT_DIR
-    count: int = 250
+    count: int | None = None
+    event_count: int | None = None
+    movement_count: int | None = None
+    case_count: int | None = None
     seed: int = 42
+    run_date: datetime = DEFAULT_RUN_DATE
+
+    def __post_init__(self) -> None:
+        event_count = self.event_count if self.event_count is not None else self.count
+        movement_count = self.movement_count if self.movement_count is not None else self.count
+        case_count = self.case_count
+        if event_count is None:
+            event_count = DEFAULT_EVENT_COUNT
+        if movement_count is None:
+            movement_count = DEFAULT_MOVEMENT_COUNT
+        if case_count is None:
+            case_count = max(10, self.count // 10) if self.count is not None else DEFAULT_CASE_COUNT
+
+        object.__setattr__(self, "event_count", event_count)
+        object.__setattr__(self, "movement_count", movement_count)
+        object.__setattr__(self, "case_count", case_count)
 
 
 @dataclass(frozen=True)
@@ -771,12 +816,22 @@ def non_negative_int(value: str) -> int:
     return parsed
 
 
+def parse_run_date(value: str) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("must be an ISO-8601 datetime") from exc
+    if parsed.tzinfo is None:
+        return parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
 def generate_stock_sources(config: GenerationConfig = GenerationConfig()) -> dict[str, Any]:
-    if config.count < 0:
-        raise ValueError("count must be greater than or equal to 0")
+    if config.event_count < 0 or config.movement_count < 0 or config.case_count < 0:
+        raise ValueError("event_count, movement_count, and case_count must be greater than or equal to 0")
 
     rng = random.Random(config.seed)
-    run_date = datetime.now(UTC).replace(microsecond=0)
+    run_date = config.run_date.astimezone(timezone.utc).replace(microsecond=0)
     config.output_dir.mkdir(parents=True, exist_ok=True)
 
     catalogue = build_item_catalogue(rng)
@@ -785,12 +840,12 @@ def generate_stock_sources(config: GenerationConfig = GenerationConfig()) -> dic
     stock_lots = build_stock_lots(catalogue, locations, run_date, rng)
     erp_balances = build_erp_balances(stock_lots, catalogue, rng)
     manual_stocktake = build_manual_stocktake(stock_lots, run_date, rng)
-    scanner_events = build_scanner_events(stock_lots, run_date, count=config.count, rng=rng)
-    stock_movements = build_stock_movements(stock_lots, run_date, count=config.count, rng=rng)
+    scanner_events = build_scanner_events(stock_lots, run_date, count=config.event_count, rng=rng)
+    stock_movements = build_stock_movements(stock_lots, run_date, count=config.movement_count, rng=rng)
     case_demand = build_upcoming_case_demand(
         catalogue,
         run_date,
-        case_count=max(10, config.count // 10),
+        case_count=config.case_count,
         rng=rng,
     )
     substitution_rules = build_substitution_rules(catalogue, rng)
@@ -818,6 +873,9 @@ def generate_stock_sources(config: GenerationConfig = GenerationConfig()) -> dic
     manifest = {
         "generated_at": run_date.isoformat(),
         "seed": config.seed,
+        "event_count": config.event_count,
+        "movement_count": config.movement_count,
+        "case_count": config.case_count,
         "source_basis": "surgeon_preference.generate_synthetic_data.catalogue.clinical_profiles",
         "clinical_profile_count": len(CLINICAL_PREFERENCE_PROFILES),
         "artifact_count": len(artifacts),
@@ -834,6 +892,28 @@ def generate_stock_sources(config: GenerationConfig = GenerationConfig()) -> dic
     return manifest
 
 
+def manifest_summary(manifest: dict[str, Any]) -> str:
+    artifacts = manifest.get("artifacts", {})
+    output_paths = [
+        Path(path)
+        for artifact in artifacts.values()
+        for key, path in artifact.items()
+        if key in {"csv", "json", "jsonl"}
+    ]
+    output_dir = output_paths[0].parent if output_paths else DEFAULT_OUTPUT_DIR
+    record_total = sum(int(artifact.get("records") or 0) for artifact in artifacts.values())
+    file_count = len(output_paths) + 1
+    lines = [
+        "Synthetic stock inventory data generated.",
+        f"Output directory: {output_dir}",
+        f"Artifact groups: {len(artifacts)}",
+        f"Files written: {file_count}",
+        f"Logical records: {record_total}",
+        f"Manifest: {output_dir / 'generation_manifest.json'}",
+    ]
+    return "\n".join(lines)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Generate clinically aligned synthetic stock inventory source files."
@@ -846,8 +926,29 @@ def main() -> None:
     parser.add_argument(
         "--count",
         type=non_negative_int,
-        default=250,
-        help="Number of scanner events and stock movements to generate.",
+        default=None,
+        help=(
+            "Backwards-compatible shortcut for scanner event and stock movement counts. "
+            "If --case-count is omitted, case count is max(10, count // 10)."
+        ),
+    )
+    parser.add_argument(
+        "--event-count",
+        type=non_negative_int,
+        default=None,
+        help="Number of scanner events to generate.",
+    )
+    parser.add_argument(
+        "--movement-count",
+        type=non_negative_int,
+        default=None,
+        help="Number of stock movement records to generate.",
+    )
+    parser.add_argument(
+        "--case-count",
+        type=non_negative_int,
+        default=None,
+        help="Number of upcoming surgical cases to generate demand for.",
     )
     parser.add_argument(
         "--seed",
@@ -855,16 +956,46 @@ def main() -> None:
         default=42,
         help="Random seed for reproducible source generation.",
     )
+    parser.add_argument(
+        "--run-date",
+        type=parse_run_date,
+        default=DEFAULT_RUN_DATE,
+        help=f"ISO-8601 generation anchor date. Defaults to {DEFAULT_RUN_DATE.isoformat()}.",
+    )
+    parser.add_argument(
+        "--print-manifest",
+        action="store_true",
+        help="Print the full generation manifest JSON instead of a concise summary.",
+    )
     args = parser.parse_args()
+    event_count = args.event_count if args.event_count is not None else args.count
+    movement_count = args.movement_count if args.movement_count is not None else args.count
+    if event_count is None:
+        event_count = DEFAULT_EVENT_COUNT
+    if movement_count is None:
+        movement_count = DEFAULT_MOVEMENT_COUNT
+
+    case_count = args.case_count
+    if case_count is None:
+        if args.count is not None:
+            case_count = max(10, args.count // 10)
+        else:
+            case_count = DEFAULT_CASE_COUNT
 
     manifest = generate_stock_sources(
         GenerationConfig(
             output_dir=Path(args.output_dir),
-            count=args.count,
+            event_count=event_count,
+            movement_count=movement_count,
+            case_count=case_count,
             seed=args.seed,
+            run_date=args.run_date,
         )
     )
-    print(json.dumps(manifest, indent=2))
+    if args.print_manifest:
+        print(json.dumps(manifest, indent=2))
+    else:
+        print(manifest_summary(manifest))
 
 
 if __name__ == "__main__":

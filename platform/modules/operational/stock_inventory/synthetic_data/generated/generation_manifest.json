@@ -1,59 +1,62 @@
 {
-  "generated_at": "2026-07-07T21:26:45+00:00",
-  "seed": 7,
+  "generated_at": "2026-07-08T00:00:00+00:00",
+  "seed": 42,
+  "event_count": 250,
+  "movement_count": 250,
+  "case_count": 25,
   "source_basis": "surgeon_preference.generate_synthetic_data.catalogue.clinical_profiles",
   "clinical_profile_count": 17,
   "artifact_count": 10,
   "artifacts": {
     "item_catalogue": {
-      "csv": "/Users/joshuaofori/Desktop/surgical_data_platform/platform/modules/operational/stock_inventory/synthetic_data/generated/item_catalogue.csv",
-      "json": "/Users/joshuaofori/Desktop/surgical_data_platform/platform/modules/operational/stock_inventory/synthetic_data/generated/item_catalogue.json",
+      "csv": "synthetic_data/generated/item_catalogue.csv",
+      "json": "synthetic_data/generated/item_catalogue.json",
       "records": 178
     },
     "supplier_catalogue": {
-      "csv": "/Users/joshuaofori/Desktop/surgical_data_platform/platform/modules/operational/stock_inventory/synthetic_data/generated/supplier_catalogue.csv",
-      "json": "/Users/joshuaofori/Desktop/surgical_data_platform/platform/modules/operational/stock_inventory/synthetic_data/generated/supplier_catalogue.json",
+      "csv": "synthetic_data/generated/supplier_catalogue.csv",
+      "json": "synthetic_data/generated/supplier_catalogue.json",
       "records": 8
     },
     "stock_locations": {
-      "csv": "/Users/joshuaofori/Desktop/surgical_data_platform/platform/modules/operational/stock_inventory/synthetic_data/generated/stock_locations.csv",
-      "json": "/Users/joshuaofori/Desktop/surgical_data_platform/platform/modules/operational/stock_inventory/synthetic_data/generated/stock_locations.json",
+      "csv": "synthetic_data/generated/stock_locations.csv",
+      "json": "synthetic_data/generated/stock_locations.json",
       "records": 9
     },
     "stock_lots": {
-      "csv": "/Users/joshuaofori/Desktop/surgical_data_platform/platform/modules/operational/stock_inventory/synthetic_data/generated/stock_lots.csv",
-      "json": "/Users/joshuaofori/Desktop/surgical_data_platform/platform/modules/operational/stock_inventory/synthetic_data/generated/stock_lots.json",
-      "records": 393
+      "csv": "synthetic_data/generated/stock_lots.csv",
+      "json": "synthetic_data/generated/stock_lots.json",
+      "records": 381
     },
     "erp_stock_balances": {
-      "csv": "/Users/joshuaofori/Desktop/surgical_data_platform/platform/modules/operational/stock_inventory/synthetic_data/generated/erp_stock_balances.csv",
-      "json": "/Users/joshuaofori/Desktop/surgical_data_platform/platform/modules/operational/stock_inventory/synthetic_data/generated/erp_stock_balances.json",
-      "records": 319
+      "csv": "synthetic_data/generated/erp_stock_balances.csv",
+      "json": "synthetic_data/generated/erp_stock_balances.json",
+      "records": 330
     },
     "manual_stocktake_spreadsheet": {
-      "csv": "/Users/joshuaofori/Desktop/surgical_data_platform/platform/modules/operational/stock_inventory/synthetic_data/generated/manual_stocktake_spreadsheet.csv",
-      "json": "/Users/joshuaofori/Desktop/surgical_data_platform/platform/modules/operational/stock_inventory/synthetic_data/generated/manual_stocktake_spreadsheet.json",
-      "records": 196
+      "csv": "synthetic_data/generated/manual_stocktake_spreadsheet.csv",
+      "json": "synthetic_data/generated/manual_stocktake_spreadsheet.json",
+      "records": 190
     },
     "scanner_stock_events": {
-      "csv": "/Users/joshuaofori/Desktop/surgical_data_platform/platform/modules/operational/stock_inventory/synthetic_data/generated/scanner_stock_events.csv",
-      "json": "/Users/joshuaofori/Desktop/surgical_data_platform/platform/modules/operational/stock_inventory/synthetic_data/generated/scanner_stock_events.json",
-      "records": 75,
-      "jsonl": "/Users/joshuaofori/Desktop/surgical_data_platform/platform/modules/operational/stock_inventory/synthetic_data/generated/scanner_stock_events.jsonl"
+      "csv": "synthetic_data/generated/scanner_stock_events.csv",
+      "json": "synthetic_data/generated/scanner_stock_events.json",
+      "records": 250,
+      "jsonl": "synthetic_data/generated/scanner_stock_events.jsonl"
     },
     "stock_movements": {
-      "csv": "/Users/joshuaofori/Desktop/surgical_data_platform/platform/modules/operational/stock_inventory/synthetic_data/generated/stock_movements.csv",
-      "json": "/Users/joshuaofori/Desktop/surgical_data_platform/platform/modules/operational/stock_inventory/synthetic_data/generated/stock_movements.json",
-      "records": 75
+      "csv": "synthetic_data/generated/stock_movements.csv",
+      "json": "synthetic_data/generated/stock_movements.json",
+      "records": 250
     },
     "upcoming_case_demand": {
-      "csv": "/Users/joshuaofori/Desktop/surgical_data_platform/platform/modules/operational/stock_inventory/synthetic_data/generated/upcoming_case_demand.csv",
-      "json": "/Users/joshuaofori/Desktop/surgical_data_platform/platform/modules/operational/stock_inventory/synthetic_data/generated/upcoming_case_demand.json",
-      "records": 137
+      "csv": "synthetic_data/generated/upcoming_case_demand.csv",
+      "json": "synthetic_data/generated/upcoming_case_demand.json",
+      "records": 359
     },
     "substitution_rules": {
-      "csv": "/Users/joshuaofori/Desktop/surgical_data_platform/platform/modules/operational/stock_inventory/synthetic_data/generated/substitution_rules.csv",
-      "json": "/Users/joshuaofori/Desktop/surgical_data_platform/platform/modules/operational/stock_inventory/synthetic_data/generated/substitution_rules.json",
+      "csv": "synthetic_data/generated/substitution_rules.csv",
+      "json": "synthetic_data/generated/substitution_rules.json",
       "records": 48
     }
   },
