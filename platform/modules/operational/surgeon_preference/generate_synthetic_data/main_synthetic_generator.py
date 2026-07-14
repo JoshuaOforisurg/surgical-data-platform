@@ -24,7 +24,7 @@ from generate_synthetic_data.file_exporters import (
 from generate_synthetic_data.clinical_mapping_logic import generate_clinical_mapping
 
 # Metadata
-from generate_synthetic_data import mock_data
+from generate_synthetic_data import shared_catalogue
 from domain.clinical_reference_service import ClinicalReferenceService
 
 # Messiness
@@ -76,7 +76,7 @@ def generate_single_card(
     formats: str | Iterable[str] | None = MASTER_FORMATS,
 ):
     """
-    Generates a single surgeon preference card aligned to mock_data.py.
+    Generates a single surgeon preference card aligned to the shared clinical catalogue.
     """
 
     # ---------------------------------------------------------
@@ -84,12 +84,12 @@ def generate_single_card(
     # ---------------------------------------------------------
     specialty, subspecialty, procedure_data = generate_clinical_mapping()
     procedure_name = procedure_data["name"]
-    profile = mock_data.CLINICAL_PREFERENCE_PROFILES[procedure_name]
+    profile = shared_catalogue.CLINICAL_PREFERENCE_PROFILES[procedure_name]
     reference_service = ClinicalReferenceService()
     procedure_id = reference_service.resolve_procedure(procedure_name)
     instruction_pool = (
         reference_service.instructions_for_procedure(procedure_id)
-        or mock_data.SPECIAL_INSTRUCTIONS_POOL
+        or shared_catalogue.SPECIAL_INSTRUCTIONS_POOL
     )
 
     # ---------------------------------------------------------
@@ -97,7 +97,7 @@ def generate_single_card(
     # ---------------------------------------------------------
     surgeon_obj = Surgeon(
         id=f"SURG_{random.randint(10000, 99999)}",
-        full_name=random.choice(mock_data.SURGEON_NAMES),
+        full_name=random.choice(shared_catalogue.SURGEON_NAMES),
         specialty=specialty,
         glove_size=random.choice(["6.5", "7.0", "7.5", "8.0"])
     )
@@ -138,7 +138,7 @@ def generate_single_card(
 
     version_obj = PreferenceVersion(
         version=random.randint(1, 5),
-        updated_by=random.choice(mock_data.SURGEON_UPDATE_ROLES),
+        updated_by=random.choice(shared_catalogue.SURGEON_UPDATE_ROLES),
         updated_at=datetime.now(),
         change_summary="Routine update of preference metadata."
     )
@@ -188,12 +188,12 @@ def generate_single_card(
     # ---------------------------------------------------------
     sutures_objects = [
         SutureItem(name=suture, quantity=random.randint(1, 3))
-        for suture in (profile.get("sutures") or [random.choice(mock_data.SUTURE_NAMES)])
+        for suture in (profile.get("sutures") or [random.choice(shared_catalogue.SUTURE_NAMES)])
     ]
 
     dressing_objects = [
         DressingItem(name=dressing)
-        for dressing in (profile.get("dressings") or [random.choice(mock_data.DRESSING_OPTIONS)])
+        for dressing in (profile.get("dressings") or [random.choice(shared_catalogue.DRESSING_OPTIONS)])
     ]
 
     # ---------------------------------------------------------

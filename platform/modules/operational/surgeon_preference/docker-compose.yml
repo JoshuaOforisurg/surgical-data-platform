@@ -1,6 +1,8 @@
 services:
   surgeon_pipeline:
-    build: .
+    build:
+      context: ../../..
+      dockerfile: modules/operational/surgeon_preference/Dockerfile
     container_name: surgeon_preference_pipeline
     volumes:
       - ./data:/app/data
@@ -17,7 +19,9 @@ services:
         condition: service_healthy
 
   streamlit_app:
-    build: .
+    build:
+      context: ../../..
+      dockerfile: modules/operational/surgeon_preference/Dockerfile
     container_name: surgeon_streamlit_ui
     volumes:
       - ./data:/app/data

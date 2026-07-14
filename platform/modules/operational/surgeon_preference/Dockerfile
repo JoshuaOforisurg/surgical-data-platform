@@ -2,6 +2,7 @@ FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
+ENV SURGICAL_PLATFORM_ROOT=/app
 
 WORKDIR /app
 
@@ -12,14 +13,16 @@ RUN apt-get update && apt-get install -y \
 
 RUN pip install --no-cache-dir poetry
 
-COPY pyproject.toml poetry.lock ./
+COPY modules/operational/surgeon_preference/pyproject.toml \
+    modules/operational/surgeon_preference/poetry.lock ./
 
 RUN poetry config virtualenvs.create false \
     && poetry lock \
     && poetry install --no-interaction --no-ansi
 
 
-COPY . .
+COPY modules/operational/surgeon_preference/ ./
+COPY shared/ ./shared/
 
 EXPOSE 8501
 

@@ -8,6 +8,7 @@ from generate_synthetic_data.main_synthetic_generator import generate_single_car
 from generate_synthetic_data.main_synthetic_generator import generate_batch
 from generate_synthetic_data import mock_data
 from generate_synthetic_data import catalogue
+from generate_synthetic_data import shared_catalogue
 from gold_cleaned.operational_preference_card import OperationalPreferenceGoldBuilder
 from silver_transform.silver_a.silver_a_transformer import SilverTransformer
 from silver_transform.silver_b.clinical_enrichment import ClinicalEnrichmentEngine
@@ -123,7 +124,7 @@ def test_clinical_catalogue_has_realistic_operational_metadata():
 def test_synthetic_cards_use_procedure_specific_supplies(tmp_path):
     for _ in range(20):
         card = generate_single_card(output_dir=str(tmp_path), messy=False, export=False)
-        profile = mock_data.CLINICAL_PREFERENCE_PROFILES[card.procedure.name]
+        profile = shared_catalogue.CLINICAL_PREFERENCE_PROFILES[card.procedure.name]
 
         assert {item.name for item in card.instruments}.issubset(
             {item["name"] for item in profile["instruments"]}
@@ -149,7 +150,7 @@ def test_synthetic_cards_use_procedure_specific_supplies(tmp_path):
 
 
 def test_mock_catalogue_has_complete_frontline_sections():
-    for procedure_name, profile in mock_data.CLINICAL_PREFERENCE_PROFILES.items():
+    for procedure_name, profile in shared_catalogue.CLINICAL_PREFERENCE_PROFILES.items():
         assert profile.get("drape_pack"), procedure_name
         assert profile.get("instruments"), procedure_name
         assert profile.get("equipment"), procedure_name
@@ -159,18 +160,27 @@ def test_mock_catalogue_has_complete_frontline_sections():
         assert profile.get("dressings"), procedure_name
 
 
-def test_legacy_mock_data_facade_matches_modular_catalogue():
-    assert mock_data.PROCEDURES is catalogue.PROCEDURES
-    assert mock_data.CLINICAL_PREFERENCE_PROFILES is catalogue.CLINICAL_PREFERENCE_PROFILES
-    assert mock_data.SPECIAL_INSTRUCTIONS_POOL is catalogue.SPECIAL_INSTRUCTIONS_POOL
+def test_shared_catalogue_is_the_synthetic_source_of_truth():
+    assert shared_catalogue.PROCEDURES
+    assert shared_catalogue.CLINICAL_PREFERENCE_PROFILES
+    assert shared_catalogue.SPECIAL_INSTRUCTIONS_POOL
+
+
+def test_legacy_catalogue_facades_match_shared_catalogue():
+    assert mock_data.PROCEDURES is shared_catalogue.PROCEDURES
+    assert catalogue.PROCEDURES is shared_catalogue.PROCEDURES
+    assert mock_data.CLINICAL_PREFERENCE_PROFILES is shared_catalogue.CLINICAL_PREFERENCE_PROFILES
+    assert catalogue.CLINICAL_PREFERENCE_PROFILES is shared_catalogue.CLINICAL_PREFERENCE_PROFILES
+    assert mock_data.SPECIAL_INSTRUCTIONS_POOL is shared_catalogue.SPECIAL_INSTRUCTIONS_POOL
+    assert catalogue.SPECIAL_INSTRUCTIONS_POOL is shared_catalogue.SPECIAL_INSTRUCTIONS_POOL
 
 
 def test_synthetic_surgeon_titles_use_uk_consultant_style():
     assert all(
         name.startswith(("Mr ", "Ms ", "Miss ", "Mrs "))
-        for name in mock_data.SURGEON_NAMES
+        for name in shared_catalogue.SURGEON_NAMES
     )
-    assert not any(name.startswith("Dr ") for name in mock_data.SURGEON_NAMES)
+    assert not any(name.startswith("Dr ") for name in shared_catalogue.SURGEON_NAMES)
 
 
 def test_partitioned_generation_writes_structured_files(tmp_path):
