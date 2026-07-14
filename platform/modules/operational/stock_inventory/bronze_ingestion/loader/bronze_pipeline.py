@@ -5,7 +5,7 @@ import hashlib
 import json
 import shutil
 import sys
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -60,10 +60,10 @@ class BronzeInventoryPipeline:
         run_id: str | None = None,
         canonical_format_priority: Iterable[str] = DEFAULT_CANONICAL_FORMAT_PRIORITY,
     ) -> BronzeIngestionResult:
-        run_id = run_id or datetime.now(UTC).strftime("run_%Y%m%d_%H%M%S")
+        run_id = run_id or datetime.now(timezone.utc).strftime("run_%Y%m%d_%H%M%S")
         source_files = self._source_files(source_path)
         canonical_files = self._canonical_files(source_files, canonical_format_priority)
-        ingested_at = datetime.now(UTC).replace(microsecond=0).isoformat()
+        ingested_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
         run_raw_dir = self.raw_dir / run_id
         run_records_dir = self.records_dir / run_id

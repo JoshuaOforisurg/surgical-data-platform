@@ -87,3 +87,57 @@ python3 bronze_ingestion/loader/bronze_pipeline.py \
   --source synthetic_data/generated \
   --canonical-format-priority jsonl,json,csv
 ```
+
+## Silver A Normalisation
+
+Transform canonical bronze records into structurally normalised Silver A tables:
+
+```bash
+python3 silver_transform/silver_a/transformer.py \
+  --bronze-manifest data_lake/bronze/manifests/<run_id>.json
+```
+
+If no manifest is supplied, the latest bronze manifest is used. Silver A writes
+one JSONL table per canonical dataset to `data_lake/silver_a/records/<run_id>/`
+and a transform manifest to `data_lake/silver_a/manifests/<run_id>.json`.
+Rows are not dropped during structural validation; validation issues are written
+to each Silver A record in `validation_errors`.
+
+## Silver B Enrichment
+
+Join Silver A tables into operational stock facts:
+
+```bash
+python3 silver_transform/silver_b/transformer.py \
+  --silver-a-manifest data_lake/silver_a/manifests/<run_id>.json
+```
+
+Silver B currently writes:
+
+```text
+stock_positions.jsonl
+case_readiness.jsonl
+```
+
+Stock positions enrich lots with catalogue, location, ERP balance, expiry,
+recall, sterility, reorder, and value fields. Case readiness compares upcoming
+case demand with available stock and flags ready, shortage, or substitution
+available states.
+
+## Gold Outputs
+
+Publish operational outputs for review and dashboards:
+
+```bash
+python3 gold_cleaned/publisher.py \
+  --silver-b-manifest data_lake/silver_b/manifests/<run_id>.json
+```
+
+Gold currently writes:
+
+```text
+case_readiness_summary.json/csv
+shortage_worklist.json
+reorder_worklist.json
+inventory_risk_summary.json
+```
