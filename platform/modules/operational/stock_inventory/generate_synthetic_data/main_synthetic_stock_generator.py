@@ -8,41 +8,21 @@ import random
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Final, Iterable, NamedTuple
+from typing import Any, Final, Iterable
 
-# ==============================================================================
-# PATH CONFIGURATION
-# ========================================================================
-# Using Final type hints ensures these structural boundaries cannot be accidentally overwritten
-MODULE_ROOT: Final[Path] = Path(__file__).resolve().parents[1]
-OPERATIONAL_ROOT: Final[Path] = MODULE_ROOT.parent
+STOCK_INVENTORY_ROOT: Final[Path] = Path(__file__).resolve().parents[1]
+PLATFORM_ROOT: Final[Path] = Path(__file__).resolve().parents[4]
+SHARED_CATALOGUE_DIR: Final[Path] = PLATFORM_ROOT / "shared" / "catalogue"
 
-# Clean up structural path generation using absolute definitions
-SURGEON_PREFERENCE_DIR: Final[Path] = OPERATIONAL_ROOT / "surgeon_preference"
-CATALOGUE_DIR: Final[Path] = SURGEON_PREFERENCE_DIR / "generate_synthetic_data" / "catalogue"
+DEFAULT_OUTPUT_DIR: Final[Path] = STOCK_INVENTORY_ROOT / "synthetic_data" / "generated"
+DEFAULT_RUN_DATE: Final[datetime] = datetime(2026, 7, 8, tzinfo=timezone.utc)
+DEFAULT_EVENT_COUNT: Final[int] = 250
+DEFAULT_MOVEMENT_COUNT: Final[int] = 250
+DEFAULT_CASE_COUNT: Final[int] = 25
 
-
-# ==============================================================================
-# SIMULATION SETTINGS
-# ==============================================================================
-class GeneratorConfig(NamedTuple):
-    """Immutable structure holding default execution settings for the simulation."""
-    output_dir: Path = MODULE_ROOT / "synthetic_data" / "generated"
-    run_date: datetime = datetime(2026, 7, 8, tzinfo=timezone.utc)
-    event_count: int = 250
-    movement_count: int = 250
-    case_count: int = 25
-
-# Instantiate default settings
-DEFAULTS = GeneratorConfig()
-DEFAULT_OUTPUT_DIR: Final[Path] = DEFAULTS.output_dir
-DEFAULT_RUN_DATE: Final[datetime] = DEFAULTS.run_date
-DEFAULT_EVENT_COUNT: Final[int] = DEFAULTS.event_count
-DEFAULT_MOVEMENT_COUNT: Final[int] = DEFAULTS.movement_count
-DEFAULT_CASE_COUNT: Final[int] = DEFAULTS.case_count
 
 def load_catalogue_module(module_name: str, file_name: str) -> Any:
-    module_path = CATALOGUE_DIR / file_name
+    module_path = SHARED_CATALOGUE_DIR / file_name
     spec = importlib.util.spec_from_file_location(module_name, module_path)
     if spec is None or spec.loader is None:
         raise ImportError(f"Unable to load catalogue module: {module_path}")
@@ -52,10 +32,11 @@ def load_catalogue_module(module_name: str, file_name: str) -> Any:
     return module
 
 
-clinical_profiles = load_catalogue_module("surgeon_preference_catalogue_clinical_profiles", "clinical_profiles.py")
-procedures = load_catalogue_module("surgeon_preference_catalogue_procedures", "procedures.py")
-supplies = load_catalogue_module("surgeon_preference_catalogue_supplies", "supplies.py")
-surgeons = load_catalogue_module("surgeon_preference_catalogue_surgeons", "surgeons.py")
+clinical_profiles = load_catalogue_module("shared_catalogue_clinical_profiles", "clinical_profiles.py")
+procedures = load_catalogue_module("shared_catalogue_procedures", "procedures.py")
+supplies = load_catalogue_module("shared_catalogue_supplies", "supplies.py")
+surgeons = load_catalogue_module("shared_catalogue_surgeons", "surgeons.py")
+infrastructure = load_catalogue_module("shared_catalogue_infrastructure", "infrastructure.py")
 
 CLINICAL_PREFERENCE_PROFILES = clinical_profiles.CLINICAL_PREFERENCE_PROFILES
 PROCEDURES = procedures.PROCEDURES
@@ -64,56 +45,13 @@ DISPOSABLES_ITEMS = supplies.DISPOSABLES_ITEMS
 DRESSING_OPTIONS = supplies.DRESSING_OPTIONS
 SUTURE_NAMES = supplies.SUTURE_NAMES
 SURGEON_NAMES = surgeons.SURGEON_NAMES
+HOSPITALS = infrastructure.HOSPITALS
+THEATRES = infrastructure.THEATRES
+STOCKROOMS = infrastructure.STOCKROOMS
+SUPPLIERS = infrastructure.SUPPLIERS
+MANUAL_STOCKTAKE_STAFF = infrastructure.MANUAL_STOCKTAKE_STAFF
+ITEM_TYPE_ORDER = infrastructure.ITEM_TYPE_ORDER
 
-HOSPITALS = [
-    "Local NHS Trust",
-    "Northbank Orthopaedic Centre",
-    "Riverside Elective Surgical Hub",
-]
-
-THEATRES = [
-    "Theatre 1 - Orthopaedic Elective",
-    "Theatre 2 - Trauma",
-    "Theatre 3 - Day Case",
-    "Theatre 4 - Laminar Flow",
-]
-
-STOCKROOMS = [
-    "Main Theatre Sterile Store",
-    "Orthopaedic Implant Store",
-    "Day Surgery Store",
-    "Trauma Emergency Cupboard",
-    "Vendor Loan Kit Holding Bay",
-]
-
-SUPPLIERS = [
-    ("SUP-STRYKER", "Stryker UK", "scanner_api"),
-    ("SUP-DEPUY", "DePuy Synthes", "epr_export"),
-    ("SUP-ARTHREX", "Arthrex", "epr_export"),
-    ("SUP-SN", "Smith & Nephew", "epr_export"),
-    ("SUP-MEDTRONIC", "Medtronic", "vendor_portal"),
-    ("SUP-ZIMMER", "Zimmer Biomet", "vendor_portal"),
-    ("SUP-NHS-SUPPLY", "NHS Supply Chain", "spreadsheet_upload"),
-    ("SUP-UNISURGE", "Unisurge", "spreadsheet_upload"),
-]
-
-MANUAL_STOCKTAKE_STAFF = [
-    "Theatre Stores Coordinator",
-    "Stock and Procurement Manager",
-    "Team Leader",
-    "Deputy Team Leader",
-]
-
-ITEM_TYPE_ORDER = [
-    "instrument",
-    "equipment",
-    "drape",
-    "consumable",
-    "disposable",
-    "implant",
-    "suture",
-    "dressing",
-]
 
 
 @dataclass(frozen=True)
@@ -876,7 +814,7 @@ def generate_stock_sources(config: GenerationConfig = GenerationConfig()) -> dic
         "event_count": config.event_count,
         "movement_count": config.movement_count,
         "case_count": config.case_count,
-        "source_basis": "surgeon_preference.generate_synthetic_data.catalogue.clinical_profiles",
+        "source_basis": "platform.shared.catalogue",
         "clinical_profile_count": len(CLINICAL_PREFERENCE_PROFILES),
         "artifact_count": len(artifacts),
         "artifacts": artifacts,
@@ -884,7 +822,7 @@ def generate_stock_sources(config: GenerationConfig = GenerationConfig()) -> dic
             "Manual stocktake output represents spreadsheet-based hospital checks.",
             "Scanner stock events represent barcode/scanning inventory systems.",
             "Upcoming case demand is derived from surgeon preference clinical profiles.",
-            "Item names are clinically aligned to the completed surgeon preference module.",
+            "Item names are clinically aligned to the shared surgical catalogue.",
         ],
     }
     manifest_path = config.output_dir / "generation_manifest.json"

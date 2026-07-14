@@ -4,7 +4,7 @@
   "event_count": 250,
   "movement_count": 250,
   "case_count": 25,
-  "source_basis": "surgeon_preference.generate_synthetic_data.catalogue.clinical_profiles",
+  "source_basis": "platform.shared.catalogue",
   "clinical_profile_count": 17,
   "artifact_count": 10,
   "artifacts": {
@@ -64,6 +64,6 @@
     "Manual stocktake output represents spreadsheet-based hospital checks.",
     "Scanner stock events represent barcode/scanning inventory systems.",
     "Upcoming case demand is derived from surgeon preference clinical profiles.",
-    "Item names are clinically aligned to the completed surgeon preference module."
+    "Item names are clinically aligned to the shared surgical catalogue."
   ]
 }

@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-# Compatibility facade for legacy imports.
-# Synthetic catalogue data now lives in platform/shared/catalogue.
-
 from generate_synthetic_data.shared_catalogue import (
     CLINICAL_PREFERENCE_PROFILES,
     CONSUMABLES_ITEMS,
