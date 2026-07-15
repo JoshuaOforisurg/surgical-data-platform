@@ -1,4 +1,5 @@
 import json
+import os
 import uuid
 from datetime import UTC, datetime
 from html import escape
@@ -17,6 +18,12 @@ from streamlit_services.streamlit_service import get_storage_client
 
 GOLD_OPERATIONAL_KEY = "gold/operational/latest/gold_operational_preference_cards.csv"
 DRAFT_PREFIX = "gold/operational/drafts"
+ENABLE_DRAFT_SUBMISSIONS = os.getenv("ENABLE_DRAFT_SUBMISSIONS", "false").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 EDITABLE_FIELDS = [
     "instrument_set",
     "equipment",
@@ -286,6 +293,9 @@ def load_gold_data():
 
 
 def save_draft(payload: dict) -> str:
+    if not ENABLE_DRAFT_SUBMISSIONS:
+        raise PermissionError("Draft submissions are disabled for this deployment.")
+
     storage = get_storage_client()
     timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     draft_id = payload["draft_id"]
@@ -647,6 +657,12 @@ with view_tab:
 
 
 with edit_tab:
+    if not ENABLE_DRAFT_SUBMISSIONS:
+        st.info(
+            "Draft saving is disabled on this public demo. The form shows the review workflow, "
+            "but anonymous visitors cannot write changes to storage."
+        )
+
     edit_surgeon = st.selectbox("Surgeon", surgeons, key="edit_surgeon")
     edit_df = current_df[current_df["surgeon_name"] == edit_surgeon]
     edit_procedures = edit_df["procedure"].dropna().unique().tolist()
@@ -664,7 +680,10 @@ with edit_tab:
                 )
                 for field in EDITABLE_FIELDS
             }
-            submitted = st.form_submit_button("Save Draft Edit")
+            submitted = st.form_submit_button(
+                "Save Draft Edit",
+                disabled=not ENABLE_DRAFT_SUBMISSIONS,
+            )
 
         if submitted:
             draft = {
@@ -685,6 +704,12 @@ with edit_tab:
 
 
 with create_tab:
+    if not ENABLE_DRAFT_SUBMISSIONS:
+        st.info(
+            "Draft creation is disabled on this public demo. Enable draft submissions only "
+            "after adding authentication, review controls, and abuse protection."
+        )
+
     with st.form("create_preference_form"):
         new_surgeon = st.text_input("Surgeon Name")
         new_specialty = st.text_input("Specialty", value="Orthopaedics")
@@ -697,7 +722,10 @@ with create_tab:
             )
             for field in EDITABLE_FIELDS
         }
-        create_submitted = st.form_submit_button("Save New Draft")
+        create_submitted = st.form_submit_button(
+            "Save New Draft",
+            disabled=not ENABLE_DRAFT_SUBMISSIONS,
+        )
 
     if create_submitted:
         draft = {
