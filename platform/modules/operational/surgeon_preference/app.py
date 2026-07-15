@@ -1,6 +1,7 @@
 import json
 import uuid
 from datetime import UTC, datetime
+from html import escape
 
 import pandas as pd
 import psycopg2
@@ -104,10 +105,128 @@ def inject_theme() -> None:
         color: var(--sp-dark-blue);
     }
 
+    .stTabs [data-baseweb="tab-highlight"] {
+        background-color: var(--sp-blue);
+    }
+
+    .sp-hero {
+        background: linear-gradient(180deg, #ffffff 0%, #eef7ff 100%);
+        border: 1px solid #c8dff3;
+        padding: 1.35rem 1.45rem;
+        margin-bottom: 1.25rem;
+        box-shadow: 0 10px 24px rgba(0, 48, 135, 0.06);
+    }
+
+    .sp-kicker {
+        color: var(--sp-blue);
+        font-size: 0.82rem;
+        font-weight: 800;
+        letter-spacing: 0;
+        margin-bottom: 0.35rem;
+        text-transform: uppercase;
+    }
+
+    .sp-hero h1 {
+        margin: 0;
+        padding: 0;
+    }
+
+    .sp-lead {
+        color: var(--sp-muted);
+        font-size: 1.02rem;
+        line-height: 1.55;
+        max-width: 920px;
+        margin: 0.55rem 0 0;
+    }
+
+    .sp-summary-grid {
+        display: grid;
+        gap: 0.9rem;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        margin: 0.4rem 0 1.2rem;
+    }
+
+    .sp-summary-tile {
+        background: var(--sp-white);
+        border: 1px solid var(--sp-border);
+        padding: 0.85rem 1rem;
+        min-height: 5.8rem;
+        box-shadow: 0 8px 20px rgba(0, 48, 135, 0.05);
+    }
+
+    .sp-summary-label {
+        color: var(--sp-muted);
+        font-size: 0.86rem;
+        font-weight: 700;
+        margin-bottom: 0.5rem;
+    }
+
+    .sp-summary-value {
+        color: var(--sp-dark-blue);
+        font-size: 1.45rem;
+        font-weight: 800;
+        line-height: 1.15;
+        overflow-wrap: anywhere;
+    }
+
+    .sp-field-list {
+        background: var(--sp-white);
+        border: 1px solid var(--sp-border);
+        margin: 0.45rem 0 1.2rem;
+    }
+
+    .sp-field-row {
+        display: grid;
+        grid-template-columns: minmax(9rem, 14rem) minmax(0, 1fr);
+        border-bottom: 1px solid #e5edf3;
+    }
+
+    .sp-field-row:last-child {
+        border-bottom: 0;
+    }
+
+    .sp-field-label {
+        background: #f3f8fc;
+        color: var(--sp-muted);
+        font-weight: 800;
+        padding: 0.72rem 0.85rem;
+    }
+
+    .sp-field-value {
+        color: var(--sp-text);
+        line-height: 1.45;
+        padding: 0.72rem 0.9rem;
+        white-space: pre-wrap;
+        overflow-wrap: anywhere;
+    }
+
+    @media (max-width: 900px) {
+        .sp-summary-grid {
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+
+        .sp-field-row {
+            grid-template-columns: 1fr;
+        }
+
+        .sp-field-label {
+            padding-bottom: 0.35rem;
+        }
+
+        .sp-field-value {
+            padding-top: 0.35rem;
+        }
+    }
+
+    @media (max-width: 560px) {
+        .sp-summary-grid {
+            grid-template-columns: 1fr;
+        }
+    }
+
     [data-testid="stMetric"] {
         background: var(--sp-white);
         border: 1px solid var(--sp-border);
-        border-top: 4px solid var(--sp-blue);
         padding: 0.85rem 1rem;
         box-shadow: 0 8px 20px rgba(0, 48, 135, 0.06);
     }
@@ -138,25 +257,6 @@ def inject_theme() -> None:
         color: var(--sp-white);
     }
 
-    div[data-testid="stMarkdownContainer"] ul {
-        background: transparent;
-        border: 0;
-        box-shadow: none;
-        list-style: none;
-        margin: 0.25rem 0 1.1rem;
-        padding: 0;
-    }
-
-    div[data-testid="stMarkdownContainer"] li {
-        border-bottom: 1px solid #e1e8ed;
-        padding: 0.38rem 0;
-        margin: 0;
-    }
-
-    div[data-testid="stMarkdownContainer"] li:last-child {
-        border-bottom: 0;
-    }
-
     [data-testid="stDataFrame"] {
         border: 1px solid var(--sp-border);
     }
@@ -167,7 +267,6 @@ def inject_theme() -> None:
 
 
 inject_theme()
-st.title("Surgeon Preference")
 
 # ----------------------------
 # LOAD OPERATIONAL GOLD DATA (SAFE)
@@ -333,60 +432,191 @@ if "surgeon_name" not in df.columns:
 # ----------------------------
 # UI LOGIC
 # ----------------------------
-st.success("Gold data loaded")
-
 current_df = current_preference_rows(df)
 surgeons = current_df["surgeon_name"].dropna().unique().tolist()
-view_tab, edit_tab, create_tab, metadata_tab = st.tabs(
-    ["Operational cards", "Draft edit", "Create draft", "Metadata"]
+
+st.markdown(
+    """
+<section class="sp-hero">
+    <div class="sp-kicker">Version 1 surgical data product</div>
+    <h1>Surgeon Preference</h1>
+    <p class="sp-lead">
+        A working theatre operations app for viewing surgeon preference cards,
+        checking procedure requirements, and capturing draft preference updates.
+        It is powered by a medallion data pipeline that publishes the latest
+        validated Gold dataset into cloud object storage.
+    </p>
+</section>
+    """,
+    unsafe_allow_html=True,
 )
+
+status_col_1, status_col_2, status_col_3, status_col_4 = st.columns(4)
+status_col_1.metric("Current cards", len(current_df))
+status_col_2.metric("Surgeons", current_df["surgeon_name"].nunique())
+status_col_3.metric("Procedures", current_df["procedure"].nunique() if "procedure" in current_df else 0)
+status_col_4.metric("Pipeline layer", "Gold")
+
+overview_tab, view_tab, edit_tab, create_tab, metadata_tab = st.tabs(
+    ["Overview", "Preference cards", "Draft edit", "Create draft", "Metadata"]
+)
+
+
+def render_overview() -> None:
+    st.subheader("What this app is for")
+    st.write(
+        "Surgeon preference cards help theatre teams prepare the right equipment, "
+        "instrument sets, consumables, implants, positioning, skin preparation, "
+        "and special instructions before a procedure starts."
+    )
+    st.write(
+        "This version uses synthetic clinical data only. It demonstrates how a "
+        "hospital-facing preference-card workflow could be structured before any "
+        "real hospital integration or patient-related data is introduced."
+    )
+
+    workflow_col_1, workflow_col_2, workflow_col_3 = st.columns(3)
+    with workflow_col_1:
+        st.markdown("#### View")
+        st.write("Select a surgeon and procedure to view the latest operational card.")
+    with workflow_col_2:
+        st.markdown("#### Draft")
+        st.write("Propose updates without overwriting the validated Gold dataset.")
+    with workflow_col_3:
+        st.markdown("#### Audit")
+        st.write("Check run metadata, object storage outputs, and clinical references.")
+
+    st.subheader("Current dataset")
+    preview_columns = [
+        column
+        for column in [
+            "surgeon_name",
+            "hospital",
+            "specialty",
+            "procedure",
+            "readiness_status",
+            "confidence",
+        ]
+        if column in current_df.columns
+    ]
+    st.dataframe(
+        current_df[preview_columns].sort_values(preview_columns[:1]),
+        width="stretch",
+        hide_index=True,
+    )
+
+
+def _display_value(value) -> str:
+    if pd.isna(value) or value == "":
+        return "N/A"
+    return str(value)
+
+
+def render_summary_tiles(items: list[tuple[str, object]]) -> None:
+    tiles = []
+    for label, value in items:
+        tiles.append(
+            '<div class="sp-summary-tile">'
+            f'<div class="sp-summary-label">{escape(label)}</div>'
+            f'<div class="sp-summary-value">{escape(_display_value(value))}</div>'
+            "</div>"
+        )
+    st.markdown(f'<div class="sp-summary-grid">{"".join(tiles)}</div>', unsafe_allow_html=True)
+
+
+def render_field_list(items: list[tuple[str, object]]) -> None:
+    rows = []
+    for label, value in items:
+        rows.append(
+            '<div class="sp-field-row">'
+            f'<div class="sp-field-label">{escape(label)}</div>'
+            f'<div class="sp-field-value">{escape(_display_value(value))}</div>'
+            "</div>"
+        )
+    st.markdown(f'<div class="sp-field-list">{"".join(rows)}</div>', unsafe_allow_html=True)
 
 
 def render_card(card: dict) -> None:
     st.header(card.get("surgeon_name", "Unknown Surgeon"))
-    st.write(f"Hospital: {card.get('hospital', 'N/A')}")
-    st.write(f"Specialty: {card.get('specialty', 'N/A')}")
-    st.markdown("---")
-    st.subheader("Clinical Preference Card")
-    for p in card.get("procedures", []):
-        st.markdown(
-            f"""
-### {p.get('procedure', 'Unknown')}
-- **Procedure ID:** {p.get('procedure_id', 'N/A')}
-- **OPCS code:** {p.get('opcs_code', 'N/A')}
-- **Version:** {p.get('preference_card_version_label', 'N/A')}
-- **Version updated:** {p.get('version_updated_at', 'N/A')}
-- **Readiness:** {p.get('readiness_status', 'N/A')}
-- **Instrument system:** {p.get('instrument_system', 'N/A')}
-- **Implant system:** {p.get('implant_system', 'N/A')}
-- **Instrument set:** {p.get('instrument_set', 'N/A')}
-- **Equipment:** {p.get('equipment', 'N/A')}
-- **Draping:** {p.get('draping', 'N/A')}
-- **Consumables:** {p.get('consumables', 'N/A')}
-- **Disposables:** {p.get('disposables', 'N/A')}
-- **Implants:** {p.get('implants', 'N/A')}
-- **Sutures:** {p.get('sutures', 'N/A')}
-- **Dressings:** {p.get('dressings', 'N/A')}
-- **Confidence:** {p.get('confidence', 'N/A')}
-- **Positioning:** {p.get('positioning', 'N/A')}
-- **Anaesthetic:** {p.get('anaesthetic_notes', 'N/A')}
-- **Skin prep:** {p.get('skin_prep', 'N/A')}
-- **Special instructions:** {p.get('special_instructions', 'N/A')}
-"""
-        )
+    details_col_1, details_col_2 = st.columns(2)
+    details_col_1.write(f"Hospital: {_display_value(card.get('hospital'))}")
+    details_col_2.write(f"Specialty: {_display_value(card.get('specialty'))}")
+
+    st.subheader("Clinical preference card")
+    for index, p in enumerate(card.get("procedures", []), start=1):
+        with st.expander(f"{index}. {p.get('procedure', 'Unknown Procedure')}", expanded=index == 1):
+            render_summary_tiles(
+                [
+                    ("Readiness", p.get("readiness_status")),
+                    ("Version", p.get("preference_card_version_label")),
+                    ("Confidence", p.get("confidence")),
+                    ("OPCS", p.get("opcs_code")),
+                ]
+            )
+
+            st.markdown("##### Theatre setup")
+            render_field_list(
+                [
+                    ("Procedure ID", p.get("procedure_id")),
+                    ("Instrument system", p.get("instrument_system")),
+                    ("Implant system", p.get("implant_system")),
+                    ("Instrument set", p.get("instrument_set")),
+                    ("Equipment", p.get("equipment")),
+                    ("Draping", p.get("draping")),
+                    ("Consumables", p.get("consumables")),
+                    ("Disposables", p.get("disposables")),
+                    ("Implants", p.get("implants")),
+                    ("Sutures", p.get("sutures")),
+                    ("Dressings", p.get("dressings")),
+                ]
+            )
+
+            st.markdown("##### Clinical notes")
+            render_field_list(
+                [
+                    ("Positioning", p.get("positioning")),
+                    ("Anaesthetic", p.get("anaesthetic_notes")),
+                    ("Skin prep", p.get("skin_prep")),
+                    ("Special instructions", p.get("special_instructions")),
+                    ("Version updated", p.get("version_updated_at")),
+                ]
+            )
+
+
+with overview_tab:
+    render_overview()
 
 
 with view_tab:
-    selected_surgeon = st.selectbox("Select Surgeon", surgeons, key="view_surgeon")
-    selected_procedure = None
+    search_term = st.text_input("Search surgeon or procedure", key="card_search")
+    filtered_df = current_df.copy()
+    if search_term:
+        search_mask = pd.Series(False, index=filtered_df.index)
+        for search_column in ["surgeon_name", "procedure", "specialty", "hospital"]:
+            if search_column in filtered_df.columns:
+                search_mask = search_mask | filtered_df[search_column].astype(str).str.contains(
+                    search_term,
+                    case=False,
+                    na=False,
+                )
+        filtered_df = filtered_df[search_mask]
 
-    surgeon_df = current_df[current_df["surgeon_name"] == selected_surgeon]
-    if "procedure" in surgeon_df.columns:
-        procedures = surgeon_df["procedure"].dropna().unique().tolist()
-        if procedures:
-            selected_procedure = st.selectbox("Select Procedure", ["All procedures"] + procedures)
+    filtered_surgeons = filtered_df["surgeon_name"].dropna().unique().tolist()
+    if not filtered_surgeons:
+        st.warning("No matching preference cards found.")
+    else:
+        selected_surgeon = st.selectbox("Select surgeon", filtered_surgeons, key="view_surgeon")
+        selected_procedure = None
 
-    if st.button("Generate Preference Card"):
+        surgeon_df = filtered_df[filtered_df["surgeon_name"] == selected_surgeon]
+        if "procedure" in surgeon_df.columns:
+            procedures = surgeon_df["procedure"].dropna().unique().tolist()
+            if procedures:
+                selected_procedure = st.selectbox(
+                    "Select procedure",
+                    ["All procedures"] + procedures,
+                )
+
         procedure_filter = None if selected_procedure == "All procedures" else selected_procedure
         card = build_preference_card(current_df, selected_surgeon, procedure_filter)
 
@@ -394,6 +624,26 @@ with view_tab:
             st.warning("No data found for surgeon")
         else:
             render_card(card)
+
+        st.subheader("Matching rows")
+        summary_columns = [
+            column
+            for column in [
+                "surgeon_name",
+                "hospital",
+                "specialty",
+                "procedure",
+                "procedure_id",
+                "readiness_status",
+                "confidence",
+            ]
+            if column in surgeon_df.columns
+        ]
+        st.dataframe(
+            surgeon_df[summary_columns],
+            width="stretch",
+            hide_index=True,
+        )
 
 
 with edit_tab:
@@ -474,7 +724,7 @@ with metadata_tab:
     draft_keys = get_storage_client().list_objects(DRAFT_PREFIX)
     st.metric("Drafts pending", len(draft_keys))
     if draft_keys:
-        st.dataframe(pd.DataFrame({"draft_key": draft_keys[-25:]}), use_container_width=True)
+        st.dataframe(pd.DataFrame({"draft_key": draft_keys[-25:]}), width="stretch")
 
     postgres_metadata = load_postgres_metadata()
     postgres_health = postgres_metadata["health"]
@@ -490,7 +740,7 @@ with metadata_tab:
         if postgres_health.get("missing_tables"):
             st.dataframe(
                 pd.DataFrame({"missing_table": postgres_health["missing_tables"]}),
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
             )
         if postgres_health.get("missing_columns"):
@@ -499,7 +749,7 @@ with metadata_tab:
                 for table, columns in postgres_health["missing_columns"].items()
                 for column in columns
             ]
-            st.dataframe(pd.DataFrame(missing_columns), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(missing_columns), width="stretch", hide_index=True)
     else:
         st.success(postgres_health["message"])
 
@@ -513,7 +763,7 @@ with metadata_tab:
     for label, key in postgres_sections:
         if key in postgres_metadata:
             with st.expander(label, expanded=key in {"runs", "object_summary"}):
-                st.dataframe(postgres_metadata[key], use_container_width=True, hide_index=True)
+                st.dataframe(postgres_metadata[key], width="stretch", hide_index=True)
 
     st.subheader("Clinical reference metadata")
-    st.dataframe(load_reference_metadata(), use_container_width=True, hide_index=True)
+    st.dataframe(load_reference_metadata(), width="stretch", hide_index=True)
