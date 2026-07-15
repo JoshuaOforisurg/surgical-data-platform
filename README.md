@@ -12,6 +12,8 @@ operational data product that processes synthetic surgeon preference data
 through landing, bronze, silver, and gold layers, publishes preference-card
 outputs, and serves them through a Dockerized Streamlit app running on Azure.
 
+Live demo: [www.surgeonpreference.com](https://www.surgeonpreference.com)
+
 > This project uses synthetic data only. It does not contain real patient data,
 > staff data, theatre lists, or hospital confidential information.
 
@@ -244,20 +246,22 @@ infrastructure/
 
 ## Mode switching
 
-The platform switches between local and cloud execution using an environment variable:
+The Surgeon Preference pipeline currently switches storage backend from its
+runtime environment:
 
-```bash
-MODE=local   # local development
-MODE=cloud   # Azure deployment
+```text
+Local development: no AZURE_STORAGE_CONNECTION_STRING, so MinIO is used.
+Azure deployment: AZURE_STORAGE_CONNECTION_STRING is set, so Azure Blob is used.
 ```
 
-Pipelines share the same business logic but use different backends depending on the mode.
+Pipelines share the same business logic but use different backends depending on
+the configured environment variables.
 
 ---
 
 ## Repository structure
 
-```bash
+```text
 theatre-data-platform/
 ├── README.md
 ├── docs/

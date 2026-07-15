@@ -2,13 +2,15 @@
 
 Production-oriented local pipeline for messy surgeon preference data.
 
+Live demo: [www.surgeonpreference.com](https://www.surgeonpreference.com)
+
 ## Version 1 Status
 
 Version 1 of the Surgeon Preference pipeline is complete as a standalone
 operational data product.
 
 The pipeline now runs locally and in Azure as a scheduled/manual batch
-workflow. In the current Azure learning setup, Azure Data Factory starts a
+workflow. In the current Azure setup, Azure Data Factory starts a
 Container App Job. The job generates 1000 clinically aligned synthetic source
 files, processes them through the medallion pipeline, writes audit metadata to
 Postgres, publishes Gold outputs to Azure Blob Storage, and serves the latest
@@ -29,9 +31,9 @@ Versioned Gold outputs and latest operational views for Streamlit
 ```
 
 The next platform pipeline should build on this work rather than expand this
-module further. The recommended next data product is stock/inventory
-management, because it can combine with surgeon preferences to support theatre
-readiness, shortage detection, substitutions, and reorder planning.
+module further. The next data product is stock/inventory management, which can
+combine with the surgeon preference pipeline to support theatre analytics such
+as readiness, shortage detection, substitutions, and reorder planning.
 
 ## Current Architecture
 
@@ -65,23 +67,33 @@ Streamlit reads gold/operational/latest/gold_operational_preference_cards.csv
 
 ## Main Entry Points
 
+Run commands from this module directory unless stated otherwise:
+
+```bash
+cd /Users/joshuaofori/Desktop/surgical_data_platform/platform/modules/operational/surgeon_preference
+source venv/bin/activate
+```
+
+If you do not activate the virtual environment, use `./venv/bin/python` and
+`./venv/bin/streamlit` in place of `python` and `streamlit`.
+
 Run the full pipeline:
 
 ```bash
-python main_orchestrator.py --source generate_synthetic_data/output/master_preferences.json
+./venv/bin/python main_orchestrator.py --source generate_synthetic_data/output/master_preferences.json
 ```
 
 By default, the local synthetic path is regenerated with 1000 clinically aligned
 preference cards before the pipeline runs. Override the scale with:
 
 ```bash
-SYNTHETIC_RECORD_COUNT=250 python main_orchestrator.py
+SYNTHETIC_RECORD_COUNT=250 ./venv/bin/python main_orchestrator.py
 ```
 
 Generate one structured source file per card for ingestion scale testing:
 
 ```bash
-python main_orchestrator.py \
+./venv/bin/python main_orchestrator.py \
   --synthetic-count 1000 \
   --synthetic-output-mode partitioned \
   --synthetic-file-formats json,csv
@@ -90,21 +102,21 @@ python main_orchestrator.py \
 Use the existing synthetic file without regeneration:
 
 ```bash
-python main_orchestrator.py --use-existing-synthetic
+./venv/bin/python main_orchestrator.py --use-existing-synthetic
 ```
 
 Process every object under an object-storage prefix, which is the default
 cloud mode for uploaded-file automation:
 
 ```bash
-python main_orchestrator.py --source-object-prefix incoming/
+./venv/bin/python main_orchestrator.py --source-object-prefix incoming/
 ```
 
 Run the Azure Container App Job style synthetic scale test. This generates
 1000 individual source files and then processes the generated directory:
 
 ```bash
-python main_orchestrator.py \
+./venv/bin/python main_orchestrator.py \
   --synthetic-count 1000 \
   --synthetic-output-mode partitioned \
   --synthetic-file-formats json,csv
@@ -113,8 +125,8 @@ python main_orchestrator.py \
 Generate synthetic cards directly:
 
 ```bash
-python -m generate_synthetic_data.main_synthetic_generator --count 1000
-python -m generate_synthetic_data.main_synthetic_generator \
+./venv/bin/python -m generate_synthetic_data.main_synthetic_generator --count 1000
+./venv/bin/python -m generate_synthetic_data.main_synthetic_generator \
   --count 1000 \
   --output-mode partitioned \
   --file-formats json,csv
@@ -123,7 +135,7 @@ python -m generate_synthetic_data.main_synthetic_generator \
 Run the Streamlit UI:
 
 ```bash
-streamlit run app.py
+./venv/bin/streamlit run app.py
 ```
 
 Run the local stack:
@@ -131,6 +143,10 @@ Run the local stack:
 ```bash
 docker compose up --build
 ```
+
+Run this Docker Compose command from the module directory shown above. The
+compose file sets the build context to the wider `platform/` directory so the
+Dockerfile can copy both this module and shared platform code.
 
 Create local secrets from the example template before running the stack:
 
@@ -173,7 +189,7 @@ environment variables before running the normal pipeline command. Use
 ```bash
 export AZURE_STORAGE_CONNECTION_STRING="<your Azure storage connection string>"
 export AZURE_CONTAINER_NAME="surgeon-preference"
-python main_orchestrator.py --source-object-prefix incoming/
+./venv/bin/python main_orchestrator.py --source-object-prefix incoming/
 ```
 
 After the run, the Azure container should contain objects under `landing/`,
@@ -258,6 +274,15 @@ Streamlit reads the current operational Gold file from object storage and
 allows staff to save draft edits or new draft preference cards. Drafts are
 written under `gold/operational/drafts/` with `pending_review` status. They are
 not silently promoted over the operational Gold card.
+
+For a public demo, draft submissions are disabled by default:
+
+```bash
+ENABLE_DRAFT_SUBMISSIONS=false
+```
+
+Set `ENABLE_DRAFT_SUBMISSIONS=true` only in a controlled environment with
+authentication, review controls, and abuse protection.
 
 ## Azure And FHIR Learning Plan
 
