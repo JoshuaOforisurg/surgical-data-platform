@@ -63,6 +63,7 @@ class GenerationConfig:
     case_count: int | None = None
     seed: int = 42
     run_date: datetime = DEFAULT_RUN_DATE
+    messy_sources: bool = True
 
     def __post_init__(self) -> None:
         event_count = self.event_count if self.event_count is not None else self.count
@@ -747,6 +748,78 @@ def write_table_pair(output_dir: Path, name: str, rows: list[dict[str, Any]]) ->
     return {"csv": str(csv_path), "json": str(json_path), "records": len(rows)}
 
 
+def humanise_field_name(field: str) -> str:
+    overrides = {
+        "batch_number": "Batch/Lot",
+        "catalogue_number": "Catalogue No",
+        "quantity_on_hand": "Qty On Hand",
+        "quantity_reserved": "Qty Reserved",
+        "quantity_available": "Qty Available",
+        "unit_cost_gbp": "Unit Cost GBP",
+    }
+    if field in overrides:
+        return overrides[field]
+    return " ".join(part.capitalize() for part in field.split("_"))
+
+
+def messy_value(field: str, value: Any, rng: random.Random) -> Any:
+    if isinstance(value, bool):
+        return rng.choice(["Yes", "Y"]) if value else rng.choice(["No", "N"])
+    if isinstance(value, int):
+        return f" {value} " if rng.random() < 0.35 else str(value)
+    if isinstance(value, float):
+        amount = f"{value:,.2f}"
+        return f"GBP {amount}" if field.endswith("_gbp") else amount
+    if value in {"", None}:
+        return rng.choice(["", "N/A"])
+    if isinstance(value, str):
+        if field.endswith("_date"):
+            try:
+                parsed = datetime.fromisoformat(value)
+                return parsed.strftime("%d/%m/%Y")
+            except ValueError:
+                return value
+        if field.endswith("_at") or field.endswith("_timestamp") or field in {"scheduled_start", "required_by_time"}:
+            try:
+                parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                return parsed.strftime("%d/%m/%Y %H:%M")
+            except ValueError:
+                return value
+        if rng.random() < 0.2 and not value.startswith(("INV-", "LOC-", "LOT-", "CASE-", "SCAN-", "MOVE-")):
+            return f" {value} "
+    return value
+
+
+def messy_csv_rows(rows: list[dict[str, Any]], rng: random.Random) -> list[dict[str, Any]]:
+    messy_rows: list[dict[str, Any]] = []
+    for row in rows:
+        messy_rows.append(
+            {
+                humanise_field_name(field): messy_value(field, value, rng)
+                for field, value in row.items()
+            }
+        )
+    return messy_rows
+
+
+def write_source_table_pair(
+    output_dir: Path,
+    name: str,
+    rows: list[dict[str, Any]],
+    rng: random.Random,
+    messy_sources: bool,
+) -> dict[str, Any]:
+    csv_rows = messy_csv_rows(rows, rng) if messy_sources else rows
+    csv_path = output_dir / f"{name}.csv"
+    json_path = output_dir / f"{name}.json"
+    write_csv(csv_path, csv_rows)
+    write_json(json_path, rows)
+    result = {"csv": str(csv_path), "json": str(json_path), "records": len(rows)}
+    if messy_sources:
+        result["csv_profile"] = "messy_hospital_spreadsheet"
+    return result
+
+
 def non_negative_int(value: str) -> int:
     parsed = int(value)
     if parsed < 0:
@@ -789,20 +862,40 @@ def generate_stock_sources(config: GenerationConfig = GenerationConfig()) -> dic
     substitution_rules = build_substitution_rules(catalogue, rng)
 
     artifacts = {
-        "item_catalogue": write_table_pair(config.output_dir, "item_catalogue", catalogue),
-        "supplier_catalogue": write_table_pair(config.output_dir, "supplier_catalogue", suppliers),
-        "stock_locations": write_table_pair(config.output_dir, "stock_locations", locations),
-        "stock_lots": write_table_pair(config.output_dir, "stock_lots", stock_lots),
-        "erp_stock_balances": write_table_pair(config.output_dir, "erp_stock_balances", erp_balances),
-        "manual_stocktake_spreadsheet": write_table_pair(
+        "item_catalogue": write_source_table_pair(
+            config.output_dir, "item_catalogue", catalogue, rng, config.messy_sources
+        ),
+        "supplier_catalogue": write_source_table_pair(
+            config.output_dir, "supplier_catalogue", suppliers, rng, config.messy_sources
+        ),
+        "stock_locations": write_source_table_pair(
+            config.output_dir, "stock_locations", locations, rng, config.messy_sources
+        ),
+        "stock_lots": write_source_table_pair(
+            config.output_dir, "stock_lots", stock_lots, rng, config.messy_sources
+        ),
+        "erp_stock_balances": write_source_table_pair(
+            config.output_dir, "erp_stock_balances", erp_balances, rng, config.messy_sources
+        ),
+        "manual_stocktake_spreadsheet": write_source_table_pair(
             config.output_dir,
             "manual_stocktake_spreadsheet",
             manual_stocktake,
+            rng,
+            config.messy_sources,
         ),
-        "scanner_stock_events": write_table_pair(config.output_dir, "scanner_stock_events", scanner_events),
-        "stock_movements": write_table_pair(config.output_dir, "stock_movements", stock_movements),
-        "upcoming_case_demand": write_table_pair(config.output_dir, "upcoming_case_demand", case_demand),
-        "substitution_rules": write_table_pair(config.output_dir, "substitution_rules", substitution_rules),
+        "scanner_stock_events": write_source_table_pair(
+            config.output_dir, "scanner_stock_events", scanner_events, rng, config.messy_sources
+        ),
+        "stock_movements": write_source_table_pair(
+            config.output_dir, "stock_movements", stock_movements, rng, config.messy_sources
+        ),
+        "upcoming_case_demand": write_source_table_pair(
+            config.output_dir, "upcoming_case_demand", case_demand, rng, config.messy_sources
+        ),
+        "substitution_rules": write_source_table_pair(
+            config.output_dir, "substitution_rules", substitution_rules, rng, config.messy_sources
+        ),
     }
     scanner_jsonl_path = config.output_dir / "scanner_stock_events.jsonl"
     write_jsonl(scanner_jsonl_path, scanner_events)
@@ -814,6 +907,7 @@ def generate_stock_sources(config: GenerationConfig = GenerationConfig()) -> dic
         "event_count": config.event_count,
         "movement_count": config.movement_count,
         "case_count": config.case_count,
+        "messy_sources": config.messy_sources,
         "source_basis": "platform.shared.catalogue",
         "clinical_profile_count": len(CLINICAL_PREFERENCE_PROFILES),
         "artifact_count": len(artifacts),
@@ -823,6 +917,7 @@ def generate_stock_sources(config: GenerationConfig = GenerationConfig()) -> dic
             "Scanner stock events represent barcode/scanning inventory systems.",
             "Upcoming case demand is derived from surgeon preference clinical profiles.",
             "Item names are clinically aligned to the shared surgical catalogue.",
+            "CSV outputs intentionally include spreadsheet-style formatting when messy_sources is true.",
         ],
     }
     manifest_path = config.output_dir / "generation_manifest.json"
@@ -905,6 +1000,11 @@ def main() -> None:
         action="store_true",
         help="Print the full generation manifest JSON instead of a concise summary.",
     )
+    parser.add_argument(
+        "--clean-sources",
+        action="store_true",
+        help="Write clean CSV files instead of messy spreadsheet-style CSV files.",
+    )
     args = parser.parse_args()
     event_count = args.event_count if args.event_count is not None else args.count
     movement_count = args.movement_count if args.movement_count is not None else args.count
@@ -928,6 +1028,7 @@ def main() -> None:
             case_count=case_count,
             seed=args.seed,
             run_date=args.run_date,
+            messy_sources=not args.clean_sources,
         )
     )
     if args.print_manifest:

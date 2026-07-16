@@ -69,11 +69,13 @@ class GoldInventoryPublisher:
 
         stock_positions = tables.get("stock_positions", [])
         case_readiness = tables.get("case_readiness", [])
+        usage_analytics = tables.get("usage_analytics", [])
         artifacts = {
             "case_readiness_summary": self.case_readiness_summary(case_readiness),
             "shortage_worklist": self.shortage_worklist(case_readiness),
             "reorder_worklist": self.reorder_worklist(stock_positions),
-            "inventory_risk_summary": self.inventory_risk_summary(stock_positions, case_readiness),
+            "usage_cost_summary": self.usage_cost_summary(usage_analytics),
+            "inventory_risk_summary": self.inventory_risk_summary(stock_positions, case_readiness, usage_analytics),
         }
 
         run_records_dir = self.records_dir / run_id
@@ -205,7 +207,9 @@ class GoldInventoryPublisher:
         self,
         stock_positions: list[dict[str, Any]],
         case_readiness: list[dict[str, Any]],
+        usage_analytics: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
+        usage_analytics = usage_analytics or []
         availability_counts = Counter(row.get("availability_status") for row in stock_positions)
         readiness_counts = Counter(row.get("readiness_status") for row in case_readiness)
         stock_value = round(
@@ -220,7 +224,33 @@ class GoldInventoryPublisher:
             "readiness_status_counts": dict(sorted(readiness_counts.items())),
             "shortage_line_count": sum(1 for row in case_readiness if int(row.get("shortage_quantity") or 0) > 0),
             "reorder_position_count": sum(1 for row in stock_positions if row.get("reorder_required")),
+            "issued_quantity": sum(int(row.get("issued_quantity") or 0) for row in usage_analytics),
+            "estimated_issue_value_gbp": round(
+                sum(float(row.get("estimated_issue_value_gbp") or 0) for row in usage_analytics),
+                2,
+            ),
         }
+
+    def usage_cost_summary(self, usage_analytics: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        rows = [
+            {
+                "item_id": row.get("item_id"),
+                "canonical_name": row.get("canonical_name"),
+                "item_type": row.get("item_type"),
+                "movement_count": row.get("movement_count"),
+                "issued_quantity": row.get("issued_quantity"),
+                "returned_quantity": row.get("returned_quantity"),
+                "wasted_quantity": row.get("wasted_quantity"),
+                "case_issue_count": row.get("case_issue_count"),
+                "estimated_issue_value_gbp": row.get("estimated_issue_value_gbp"),
+            }
+            for row in usage_analytics
+            if int(row.get("movement_count") or 0) > 0
+        ]
+        return sorted(
+            rows,
+            key=lambda row: (-float(row.get("estimated_issue_value_gbp") or 0), row.get("canonical_name") or ""),
+        )
 
     def overall_case_status(self, status_counts: Counter, critical_shortage_lines: int) -> str:
         if critical_shortage_lines:
@@ -248,4 +278,3 @@ def main(argv: Iterable[str] | None = None) -> None:
 
 if __name__ == "__main__":
     main()
-

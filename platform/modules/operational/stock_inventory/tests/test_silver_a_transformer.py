@@ -132,3 +132,33 @@ def test_silver_a_records_validation_errors_without_dropping_rows(tmp_path):
     assert result.invalid_record_count == 1
     rows = _jsonl_rows(tmp_path / "silver_a" / "records" / "run_bad" / "item_catalogue.jsonl")
     assert "item_id: required" in rows[0]["validation_errors"]
+
+
+def test_silver_a_cleans_messy_spreadsheet_values(tmp_path):
+    source_dir = tmp_path / "sources"
+    source_dir.mkdir()
+    (source_dir / "stock_lots.csv").write_text(
+        "Lot Id,Item Id,Location Id,Qty On Hand,Qty Reserved,Unit Cost GBP,Expiry Date,Last Counted At\n"
+        "LOT-001,INV-001,LOC-001,\" 1,234 \", 5 ,\"GBP 1,234.50\",08/07/2026,08/07/2026 13:45\n",
+        encoding="utf-8",
+    )
+
+    bronze = BronzeInventoryPipeline(
+        raw_dir=tmp_path / "bronze" / "raw",
+        records_dir=tmp_path / "bronze" / "records",
+        manifest_dir=tmp_path / "bronze" / "manifests",
+    ).ingest(source_dir, run_id="run_messy")
+
+    result = SilverATransformer(
+        records_dir=tmp_path / "silver_a" / "records",
+        manifest_dir=tmp_path / "silver_a" / "manifests",
+    ).transform(Path(bronze.manifest_path))
+
+    assert result.invalid_record_count == 0
+    rows = _jsonl_rows(tmp_path / "silver_a" / "records" / "run_messy" / "stock_lots.jsonl")
+    payload = rows[0]["payload"]
+    assert payload["quantity_on_hand"] == 1234
+    assert payload["quantity_reserved"] == 5
+    assert payload["unit_cost_gbp"] == 1234.5
+    assert payload["expiry_date"] == "2026-07-08"
+    assert payload["last_counted_at"] == "2026-07-08T13:45:00"
