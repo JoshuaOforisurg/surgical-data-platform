@@ -67,9 +67,13 @@ FIELD_ALIASES = {
     "item description": "item_description",
     "notes": "notes",
     "qty counted": "qty_counted",
+    "qty available": "quantity_available",
+    "qty on hand": "quantity_on_hand",
+    "qty reserved": "quantity_reserved",
     "shelf/bin": "shelf_bin",
     "stock area": "stock_area",
     "unit": "unit",
+    "unit cost gbp": "unit_cost_gbp",
 }
 
 
@@ -115,29 +119,42 @@ def to_int(value: Any) -> int | None:
     value = empty_to_none(value)
     if value is None:
         return None
-    return int(float(value))
+    return int(float(str(value).replace(",", "").strip()))
 
 
 def to_float(value: Any) -> float | None:
     value = empty_to_none(value)
     if value is None:
         return None
-    return float(value)
+    text = str(value).replace(",", "").strip()
+    for prefix in ("GBP", "£"):
+        if text.upper().startswith(prefix):
+            text = text[len(prefix):].strip()
+    return float(text)
+
+
+def parse_datetime_text(value: Any) -> datetime:
+    text = str(value).strip().replace("Z", "+00:00")
+    for date_format in ("%d/%m/%Y %H:%M", "%d/%m/%y %H:%M", "%d/%m/%Y", "%d/%m/%y"):
+        try:
+            return datetime.strptime(text, date_format)
+        except ValueError:
+            continue
+    return datetime.fromisoformat(text)
 
 
 def to_iso_datetime(value: Any) -> str | None:
     value = empty_to_none(value)
     if value is None:
         return None
-    text = str(value).replace("Z", "+00:00")
-    return datetime.fromisoformat(text).isoformat()
+    return parse_datetime_text(value).isoformat()
 
 
 def to_iso_date(value: Any) -> str | None:
     value = empty_to_none(value)
     if value is None:
         return None
-    return datetime.fromisoformat(str(value)).date().isoformat()
+    return parse_datetime_text(value).date().isoformat()
 
 
 def coerce_value(field: str, value: Any) -> Any:

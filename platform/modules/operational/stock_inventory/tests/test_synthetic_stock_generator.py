@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import csv
 from pathlib import Path
 
 from generate_synthetic_data.main_synthetic_stock_generator import (
@@ -79,3 +80,41 @@ def test_generator_is_reproducible_for_same_seed_and_run_date(tmp_path):
     assert first_manifest["generated_at"] == second_manifest["generated_at"]
     assert first_catalogue == second_catalogue
     assert first_events == second_events
+
+
+def test_generator_writes_messy_csv_and_clean_json_by_default(tmp_path):
+    manifest = generate_stock_sources(
+        GenerationConfig(output_dir=tmp_path, event_count=2, movement_count=2, case_count=2, seed=42)
+    )
+
+    assert manifest["messy_sources"] is True
+    assert manifest["artifacts"]["stock_lots"]["csv_profile"] == "messy_hospital_spreadsheet"
+
+    with (tmp_path / "stock_lots.csv").open(encoding="utf-8-sig") as file:
+        csv_row = next(csv.DictReader(file))
+    json_row = json.loads((tmp_path / "stock_lots.json").read_text(encoding="utf-8"))[0]
+
+    assert "Qty On Hand" in csv_row
+    assert "quantity_on_hand" not in csv_row
+    assert "quantity_on_hand" in json_row
+
+
+def test_generator_can_write_clean_csv_when_requested(tmp_path):
+    manifest = generate_stock_sources(
+        GenerationConfig(
+            output_dir=tmp_path,
+            event_count=2,
+            movement_count=2,
+            case_count=2,
+            seed=42,
+            messy_sources=False,
+        )
+    )
+
+    assert manifest["messy_sources"] is False
+    assert "csv_profile" not in manifest["artifacts"]["stock_lots"]
+
+    with (tmp_path / "stock_lots.csv").open(encoding="utf-8-sig") as file:
+        csv_row = next(csv.DictReader(file))
+
+    assert "quantity_on_hand" in csv_row
