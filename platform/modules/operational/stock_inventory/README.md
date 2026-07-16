@@ -64,6 +64,12 @@ different ISO-8601 run date when you want a new anchored synthetic day. Use
 `--print-manifest` to print the full manifest JSON; otherwise the CLI prints a
 short summary and writes the data files to disk.
 
+CSV outputs are intentionally messy by default: spreadsheet-style headers,
+human boolean values, comma-formatted numbers, GBP currency strings, and
+UK-style dates are introduced so the ETL pipeline has realistic cleanup work.
+JSON and JSONL outputs remain clean reference sources. Pass `--clean-sources`
+when you want clean CSV files too.
+
 ## Bronze Ingestion
 
 Land generated or source-like files into the local bronze layer:
@@ -86,6 +92,14 @@ using the default priority `jsonl,json,csv`. Override that with:
 python3 bronze_ingestion/loader/bronze_pipeline.py \
   --source synthetic_data/generated \
   --canonical-format-priority jsonl,json,csv
+```
+
+To exercise the messy spreadsheet cleanup path, prefer CSV sources:
+
+```bash
+python3 -m orchestration.run_pipeline \
+  --source-dir synthetic_data/generated \
+  --canonical-format-priority csv,jsonl,json
 ```
 
 ## Silver A Normalisation
@@ -117,12 +131,14 @@ Silver B currently writes:
 ```text
 stock_positions.jsonl
 case_readiness.jsonl
+usage_analytics.jsonl
 ```
 
 Stock positions enrich lots with catalogue, location, ERP balance, expiry,
 recall, sterility, reorder, and value fields. Case readiness compares upcoming
 case demand with available stock and flags ready, shortage, or substitution
-available states.
+available states. Usage analytics summarise item movement, issue, waste, return,
+and estimated issue cost signals from stock movements.
 
 ## Gold Outputs
 
@@ -139,5 +155,47 @@ Gold currently writes:
 case_readiness_summary.json/csv
 shortage_worklist.json
 reorder_worklist.json
+usage_cost_summary.json
 inventory_risk_summary.json
 ```
+
+## Dashboard Service
+
+Dashboard-facing code can load Gold outputs without knowing the file layout:
+
+```python
+from streamlit_services import dashboard_snapshot
+
+snapshot = dashboard_snapshot("data_lake/gold/manifests/<run_id>.json")
+```
+
+The snapshot exposes headline counts, readiness and availability distributions,
+top shortages, reorder lines, and usage/cost rows for operational views.
+
+Run the local Streamlit view after a Gold run exists:
+
+```bash
+streamlit run streamlit_app.py
+```
+
+The app lists available Gold manifests in the sidebar, newest first. If no Gold
+run exists yet, run the full pipeline command below first.
+
+## Full Pipeline Orchestration
+
+Run the complete local pipeline with one command:
+
+```bash
+python3 -m orchestration.run_pipeline \
+  --source-dir synthetic_data/generated \
+  --event-count 250 \
+  --movement-count 250 \
+  --case-count 25 \
+  --seed 42
+```
+
+The orchestrator regenerates synthetic source files by default, ingests them to
+Bronze, transforms through Silver A and Silver B, publishes Gold outputs, and
+writes an end-to-end manifest to `data_lake/pipeline_manifests/<run_id>.json`.
+Use `--no-regenerate-sources` to run the pipeline from files already present in
+the source directory.
