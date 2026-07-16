@@ -92,10 +92,16 @@ class SilverBTransformer:
             stock_positions=stock_positions,
             substitution_rules=datasets.get("substitution_rules", []),
         )
+        usage_analytics = self.build_usage_analytics(
+            stock_movements=datasets.get("stock_movements", []),
+            stock_positions=stock_positions,
+            item_lookup=item_lookup,
+        )
 
         outputs = {
             "stock_positions": stock_positions,
             "case_readiness": case_readiness,
+            "usage_analytics": usage_analytics,
         }
 
         table_outputs: list[dict[str, Any]] = []
@@ -251,6 +257,72 @@ class SilverBTransformer:
             return "substitution_available"
         return "shortage"
 
+    def build_usage_analytics(
+        self,
+        stock_movements: list[dict[str, Any]],
+        stock_positions: list[dict[str, Any]],
+        item_lookup: dict[str, dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        unit_costs_by_item: dict[str, list[float]] = defaultdict(list)
+        for position in stock_positions:
+            unit_cost = position.get("unit_cost_gbp")
+            if unit_cost is not None:
+                unit_costs_by_item[position["item_id"]].append(float(unit_cost))
+
+        grouped: dict[str, dict[str, Any]] = {}
+        for movement in stock_movements:
+            item_id = movement["item_id"]
+            item = item_lookup.get(item_id, {})
+            current = grouped.setdefault(
+                item_id,
+                {
+                    "item_id": item_id,
+                    "canonical_name": movement.get("canonical_name") or item.get("canonical_name"),
+                    "item_type": item.get("item_type"),
+                    "movement_count": 0,
+                    "issued_quantity": 0,
+                    "returned_quantity": 0,
+                    "wasted_quantity": 0,
+                    "adjustment_quantity": 0,
+                    "transfer_quantity": 0,
+                    "receipt_quantity": 0,
+                    "quarantine_quantity": 0,
+                    "case_issue_count": 0,
+                    "estimated_issue_value_gbp": 0.0,
+                },
+            )
+            movement_type = str(movement.get("movement_type") or "")
+            quantity = int(movement.get("quantity") or 0)
+            unit_costs = unit_costs_by_item.get(item_id, [])
+            average_unit_cost = sum(unit_costs) / len(unit_costs) if unit_costs else 0.0
+
+            current["movement_count"] += 1
+            if movement_type == "issue":
+                current["issued_quantity"] += quantity
+                current["estimated_issue_value_gbp"] = round(
+                    float(current["estimated_issue_value_gbp"]) + quantity * average_unit_cost,
+                    2,
+                )
+                if movement.get("case_id"):
+                    current["case_issue_count"] += 1
+            elif movement_type == "return":
+                current["returned_quantity"] += quantity
+            elif movement_type == "waste":
+                current["wasted_quantity"] += quantity
+            elif movement_type == "adjustment":
+                current["adjustment_quantity"] += quantity
+            elif movement_type == "transfer":
+                current["transfer_quantity"] += quantity
+            elif movement_type == "receipt":
+                current["receipt_quantity"] += quantity
+            elif movement_type == "quarantine":
+                current["quarantine_quantity"] += quantity
+
+        return sorted(
+            grouped.values(),
+            key=lambda row: (-float(row["estimated_issue_value_gbp"]), row["canonical_name"] or ""),
+        )
+
     def write_jsonl(self, path: Path, rows: list[dict[str, Any]]) -> None:
         with path.open("w", encoding="utf-8") as file:
             for row in rows:
@@ -273,4 +345,3 @@ def main(argv: Iterable[str] | None = None) -> None:
 
 if __name__ == "__main__":
     main()
-

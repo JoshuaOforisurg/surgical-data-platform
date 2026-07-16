@@ -72,10 +72,25 @@ def test_gold_publisher_creates_operational_outputs(tmp_path):
             "readiness_status": "shortage",
         },
     ]
+    usage_analytics = [
+        {
+            "item_id": "INV-001",
+            "canonical_name": "Saw Blade",
+            "item_type": "disposable",
+            "movement_count": 3,
+            "issued_quantity": 2,
+            "returned_quantity": 0,
+            "wasted_quantity": 1,
+            "case_issue_count": 1,
+            "estimated_issue_value_gbp": 20.0,
+        }
+    ]
     stock_path = silver_b_records / "stock_positions.jsonl"
     readiness_path = silver_b_records / "case_readiness.jsonl"
+    usage_path = silver_b_records / "usage_analytics.jsonl"
     _write_jsonl(stock_path, stock_positions)
     _write_jsonl(readiness_path, case_readiness)
+    _write_jsonl(usage_path, usage_analytics)
 
     manifest_path = tmp_path / "silver_b" / "manifests" / f"{run_id}.json"
     manifest_path.parent.mkdir(parents=True)
@@ -86,6 +101,7 @@ def test_gold_publisher_creates_operational_outputs(tmp_path):
                 "table_outputs": [
                     {"dataset": "stock_positions", "output_path": str(stock_path), "records": 2},
                     {"dataset": "case_readiness", "output_path": str(readiness_path), "records": 2},
+                    {"dataset": "usage_analytics", "output_path": str(usage_path), "records": 1},
                 ],
             }
         ),
@@ -97,11 +113,12 @@ def test_gold_publisher_creates_operational_outputs(tmp_path):
         manifest_dir=tmp_path / "gold" / "manifests",
     ).publish(manifest_path)
 
-    assert result.artifact_count == 5
+    assert result.artifact_count == 6
     gold_records = tmp_path / "gold" / "records" / run_id
     summary = json.loads((gold_records / "case_readiness_summary.json").read_text(encoding="utf-8"))
     shortages = json.loads((gold_records / "shortage_worklist.json").read_text(encoding="utf-8"))
     reorders = json.loads((gold_records / "reorder_worklist.json").read_text(encoding="utf-8"))
+    usage = json.loads((gold_records / "usage_cost_summary.json").read_text(encoding="utf-8"))
     risk = json.loads((gold_records / "inventory_risk_summary.json").read_text(encoding="utf-8"))
 
     assert summary[0]["case_id"] == "CASE-001"
@@ -111,6 +128,10 @@ def test_gold_publisher_creates_operational_outputs(tmp_path):
     saw_blade_shortage = next(row for row in shortages if row["item_id"] == "INV-001")
     assert saw_blade_shortage["substitute_item_ids"] == "INV-SUB"
     assert reorders[0]["item_id"] == "INV-001"
+    assert usage[0]["item_id"] == "INV-001"
+    assert usage[0]["estimated_issue_value_gbp"] == 20.0
     assert risk["shortage_line_count"] == 2
     assert risk["reorder_position_count"] == 1
+    assert risk["issued_quantity"] == 2
+    assert risk["estimated_issue_value_gbp"] == 20.0
     assert (gold_records / "case_readiness_summary.csv").exists()
