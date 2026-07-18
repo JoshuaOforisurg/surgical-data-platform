@@ -4,7 +4,13 @@ import json
 import os
 from pathlib import Path
 
-from streamlit_services.gold_dashboard_service import dashboard_snapshot, latest_gold_manifest, list_gold_manifests
+from streamlit_services.gold_dashboard_service import (
+    dashboard_snapshot,
+    dashboard_snapshot_from_object_store,
+    latest_gold_manifest,
+    list_gold_manifests,
+    list_object_gold_manifests,
+)
 
 
 def _write_json(path: Path, payload: object) -> None:
@@ -87,3 +93,73 @@ def test_gold_manifest_options_are_newest_first(tmp_path):
 
     assert [option.run_id for option in options] == ["run_second", "run_first"]
     assert latest_gold_manifest(tmp_path / "gold" / "manifests") == second_manifest
+
+
+class FakeObjectStore:
+    def __init__(self, objects: dict[str, object]):
+        self.objects = {key: json.dumps(value) for key, value in objects.items()}
+
+    def get_text(self, key: str) -> str:
+        return self.objects[key]
+
+    def list_objects(self, prefix: str) -> list[str]:
+        return [key for key in self.objects if key.startswith(prefix)]
+
+
+def test_dashboard_snapshot_loads_gold_artifacts_from_object_store():
+    run_id = "run_object_store"
+    root_prefix = "stock_inventory"
+    manifest_key = f"{root_prefix}/runs/{run_id}/data_lake/gold/manifests/{run_id}.json"
+    objects = {
+        manifest_key: {
+            "run_id": run_id,
+            "artifacts": [
+                {
+                    "artifact": "case_readiness_summary",
+                    "output_path": f"/app/data_lake/gold/records/{run_id}/case_readiness_summary.json",
+                },
+                {
+                    "artifact": "shortage_worklist",
+                    "output_path": f"/app/data_lake/gold/records/{run_id}/shortage_worklist.json",
+                },
+                {
+                    "artifact": "reorder_worklist",
+                    "output_path": f"/app/data_lake/gold/records/{run_id}/reorder_worklist.json",
+                },
+                {
+                    "artifact": "usage_cost_summary",
+                    "output_path": f"/app/data_lake/gold/records/{run_id}/usage_cost_summary.json",
+                },
+                {
+                    "artifact": "inventory_risk_summary",
+                    "output_path": f"/app/data_lake/gold/records/{run_id}/inventory_risk_summary.json",
+                },
+            ],
+        },
+        f"{root_prefix}/runs/{run_id}/data_lake/gold/records/{run_id}/case_readiness_summary.json": [
+            {"case_id": "CASE-001", "overall_status": "ready"}
+        ],
+        f"{root_prefix}/runs/{run_id}/data_lake/gold/records/{run_id}/shortage_worklist.json": [],
+        f"{root_prefix}/runs/{run_id}/data_lake/gold/records/{run_id}/reorder_worklist.json": [],
+        f"{root_prefix}/runs/{run_id}/data_lake/gold/records/{run_id}/usage_cost_summary.json": [
+            {"item_id": "INV-001"}
+        ],
+        f"{root_prefix}/runs/{run_id}/data_lake/gold/records/{run_id}/inventory_risk_summary.json": {
+            "shortage_line_count": 0,
+            "reorder_position_count": 0,
+            "total_available_stock_value_gbp": 123.45,
+            "estimated_issue_value_gbp": 10.0,
+            "readiness_status_counts": {"ready": 1},
+            "availability_status_counts": {"available": 2},
+        },
+    }
+    object_store = FakeObjectStore(objects)
+
+    options = list_object_gold_manifests(object_store, root_prefix)
+    snapshot = dashboard_snapshot_from_object_store(object_store, manifest_key, root_prefix)
+
+    assert options[0].run_id == run_id
+    assert snapshot.run_id == run_id
+    assert snapshot.case_count == 1
+    assert snapshot.total_available_stock_value_gbp == 123.45
+    assert snapshot.top_usage_costs[0]["item_id"] == "INV-001"

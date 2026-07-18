@@ -4,6 +4,7 @@ import csv
 import hashlib
 import importlib.util
 import json
+import os
 import random
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
@@ -11,7 +12,19 @@ from pathlib import Path
 from typing import Any, Final, Iterable
 
 STOCK_INVENTORY_ROOT: Final[Path] = Path(__file__).resolve().parents[1]
-PLATFORM_ROOT: Final[Path] = Path(__file__).resolve().parents[4]
+
+
+def platform_root() -> Path:
+    configured_root = os.getenv("SURGICAL_PLATFORM_ROOT")
+    candidates = [Path(configured_root)] if configured_root else []
+    candidates.extend(Path(__file__).resolve().parents)
+    for candidate in candidates:
+        if (candidate / "shared" / "catalogue").exists():
+            return candidate
+    raise FileNotFoundError("Unable to locate shared catalogue; set SURGICAL_PLATFORM_ROOT if running packaged.")
+
+
+PLATFORM_ROOT: Final[Path] = platform_root()
 SHARED_CATALOGUE_DIR: Final[Path] = PLATFORM_ROOT / "shared" / "catalogue"
 
 DEFAULT_OUTPUT_DIR: Final[Path] = STOCK_INVENTORY_ROOT / "synthetic_data" / "generated"

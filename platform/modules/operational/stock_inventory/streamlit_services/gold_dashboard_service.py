@@ -4,7 +4,7 @@ import json
 from collections import Counter
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol
 
 from config.paths import GOLD_MANIFEST_DIR
 
@@ -38,6 +38,14 @@ class DashboardSnapshot:
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
+
+
+class TextObjectStore(Protocol):
+    def get_text(self, key: str) -> str:
+        ...
+
+    def list_objects(self, prefix: str) -> list[str]:
+        ...
 
 
 def latest_gold_manifest(manifest_dir: Path = GOLD_MANIFEST_DIR) -> Path:
@@ -89,9 +97,56 @@ def load_gold_artifacts(gold_manifest_path: Path) -> tuple[dict[str, Any], dict[
     return gold_manifest, artifacts
 
 
-def dashboard_snapshot(gold_manifest_path: str | Path | None = None) -> DashboardSnapshot:
-    manifest_path = Path(gold_manifest_path) if gold_manifest_path else latest_gold_manifest()
-    gold_manifest, artifacts = load_gold_artifacts(manifest_path)
+def object_key_for_run_path(root_prefix: str, run_id: str, path_value: str) -> str:
+    path = Path(path_value)
+    parts = path.parts
+    if "data_lake" in parts:
+        relative_path = Path(*parts[parts.index("data_lake"):]).as_posix()
+    else:
+        relative_path = path.name
+    return f"{root_prefix}/runs/{run_id}/{relative_path}"
+
+
+def gold_manifest_object_key(root_prefix: str, run_id: str) -> str:
+    return f"{root_prefix}/runs/{run_id}/data_lake/gold/manifests/{run_id}.json"
+
+
+def list_object_gold_manifests(object_store: TextObjectStore, root_prefix: str) -> list[GoldManifestOption]:
+    prefix = f"{root_prefix}/runs/"
+    suffix = ".json"
+    keys = [
+        key for key in object_store.list_objects(prefix)
+        if "/data_lake/gold/manifests/" in key and key.endswith(suffix)
+    ]
+    options = []
+    for key in sorted(keys, reverse=True):
+        try:
+            manifest = json.loads(object_store.get_text(key))
+            run_id = str(manifest.get("run_id") or Path(key).stem)
+        except json.JSONDecodeError:
+            run_id = Path(key).stem
+        options.append(GoldManifestOption(run_id=run_id, manifest_path=key, modified_at=0.0))
+    return options
+
+
+def load_gold_artifacts_from_object_store(
+    object_store: TextObjectStore,
+    manifest_key: str,
+    root_prefix: str,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    gold_manifest = json.loads(object_store.get_text(manifest_key))
+    run_id = str(gold_manifest["run_id"])
+    artifacts = {}
+    for artifact in gold_manifest.get("artifacts", []):
+        output_path = str(artifact.get("output_path") or "")
+        if Path(output_path).suffix != ".json":
+            continue
+        object_key = object_key_for_run_path(root_prefix, run_id, output_path)
+        artifacts[artifact["artifact"]] = json.loads(object_store.get_text(object_key))
+    return gold_manifest, artifacts
+
+
+def build_dashboard_snapshot(gold_manifest: dict[str, Any], artifacts: dict[str, Any]) -> DashboardSnapshot:
 
     case_summary = artifacts.get("case_readiness_summary", [])
     shortage_worklist = artifacts.get("shortage_worklist", [])
@@ -117,3 +172,18 @@ def dashboard_snapshot(gold_manifest_path: str | Path | None = None) -> Dashboar
         top_reorders=reorder_worklist[:10],
         top_usage_costs=usage_cost_summary[:10],
     )
+
+
+def dashboard_snapshot(gold_manifest_path: str | Path | None = None) -> DashboardSnapshot:
+    manifest_path = Path(gold_manifest_path) if gold_manifest_path else latest_gold_manifest()
+    gold_manifest, artifacts = load_gold_artifacts(manifest_path)
+    return build_dashboard_snapshot(gold_manifest, artifacts)
+
+
+def dashboard_snapshot_from_object_store(
+    object_store: TextObjectStore,
+    manifest_key: str,
+    root_prefix: str,
+) -> DashboardSnapshot:
+    gold_manifest, artifacts = load_gold_artifacts_from_object_store(object_store, manifest_key, root_prefix)
+    return build_dashboard_snapshot(gold_manifest, artifacts)
