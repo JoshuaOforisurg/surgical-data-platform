@@ -199,3 +199,18 @@ Bronze, transforms through Silver A and Silver B, publishes Gold outputs, and
 writes an end-to-end manifest to `data_lake/pipeline_manifests/<run_id>.json`.
 Use `--no-regenerate-sources` to run the pipeline from files already present in
 the source directory.
+
+## Pipeline Quality Gates
+
+Evaluate a completed pipeline run before using it operationally:
+
+```bash
+python3 -m orchestration.quality_gates \
+  --pipeline-manifest data_lake/pipeline_manifests/<run_id>.json
+```
+
+Quality gates verify that stage manifests exist, stage record counts are
+non-empty, Silver A invalid rows are within threshold, required Silver B tables
+exist, and required Gold dashboard artifacts were published. Results are written
+to `data_lake/quality/manifests/<run_id>.json`. The command exits non-zero when
+any required gate fails.
