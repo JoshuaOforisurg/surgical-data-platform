@@ -78,6 +78,7 @@ class StockInventoryOrchestrator:
         run_date: datetime | None = None,
         messy_sources: bool = True,
         regenerate_sources: bool = True,
+        surgeon_preference_gold_path: Path | None = None,
         canonical_format_priority: Iterable[str] = DEFAULT_CANONICAL_FORMAT_PRIORITY,
     ) -> StockInventoryPipelineResult:
         run_id = run_id or default_run_id()
@@ -93,6 +94,7 @@ class StockInventoryOrchestrator:
                     seed=seed,
                     run_date=run_date or GenerationConfig().run_date,
                     messy_sources=messy_sources,
+                    surgeon_preference_gold_path=surgeon_preference_gold_path,
                 )
             )
 
@@ -158,6 +160,11 @@ def main(argv: Iterable[str] | None = None) -> None:
         help="Use existing source files in --source-dir instead of regenerating synthetic data.",
     )
     parser.add_argument(
+        "--surgeon-preference-gold",
+        default=None,
+        help="Optional surgeon preference operational Gold JSON used to generate case demand.",
+    )
+    parser.add_argument(
         "--canonical-format-priority",
         default="jsonl,json,csv",
         help="Comma-separated source format priority for Bronze canonical selection.",
@@ -174,6 +181,9 @@ def main(argv: Iterable[str] | None = None) -> None:
         run_date=args.run_date,
         messy_sources=not args.clean_sources,
         regenerate_sources=not args.no_regenerate_sources,
+        surgeon_preference_gold_path=(
+            Path(args.surgeon_preference_gold) if args.surgeon_preference_gold else None
+        ),
         canonical_format_priority=[item.strip() for item in args.canonical_format_priority.split(",") if item.strip()],
     )
     print(json.dumps(result.to_dict(), indent=2))
