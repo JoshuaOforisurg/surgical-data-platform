@@ -43,6 +43,12 @@ def test_dashboard_snapshot_loads_gold_operational_metrics(tmp_path):
             "readiness_status_counts": {"ready": 3, "shortage": 1},
             "availability_status_counts": {"available": 10, "unavailable": 2},
         },
+        "surgeon_readiness_summary": [
+            {"surgeon_name": "Mr Test", "case_count": 2, "readiness_rate_pct": 50.0}
+        ],
+        "procedure_readiness_summary": [
+            {"procedure_name": "Test Procedure", "case_count": 2, "readiness_rate_pct": 50.0}
+        ],
     }
 
     manifest_artifacts = []
@@ -78,6 +84,8 @@ def test_dashboard_snapshot_loads_gold_operational_metrics(tmp_path):
     assert snapshot.estimated_issue_value_gbp == 20.0
     assert snapshot.top_shortages[0]["expected_item_name"] == "Critical Implant"
     assert snapshot.top_usage_costs[0]["item_id"] == "INV-001"
+    assert snapshot.surgeon_readiness[0]["surgeon_name"] == "Mr Test"
+    assert snapshot.procedure_readiness[0]["procedure_name"] == "Test Procedure"
 
 
 def test_gold_manifest_options_are_newest_first(tmp_path):
