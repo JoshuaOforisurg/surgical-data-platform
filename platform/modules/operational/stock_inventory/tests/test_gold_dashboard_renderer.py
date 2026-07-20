@@ -60,6 +60,8 @@ def test_render_gold_dashboard_uses_snapshot_sections():
         top_shortages=[{"case_id": "CASE-001"}],
         top_reorders=[{"item_id": "INV-001"}],
         top_usage_costs=[{"item_id": "INV-002"}],
+        surgeon_readiness=[{"surgeon_name": "Mr Test"}],
+        procedure_readiness=[{"procedure_name": "Test Procedure"}],
     )
     ui = Recorder()
 
@@ -69,5 +71,5 @@ def test_render_gold_dashboard_uses_snapshot_sections():
     assert ("caption", "Run: run_ui") in ui.calls
     assert ("metric", ("Cases", 5)) in ui.calls
     assert ("metric", ("Available stock value", "GBP 1,234.50")) in ui.calls
-    assert ("tabs", ["Shortages", "Reorders", "Usage and cost"]) in ui.calls
+    assert ("tabs", ["Shortages", "Surgeons", "Procedures", "Reorders", "Usage and cost"]) in ui.calls
     assert any(call[0] == "dataframe" and call[1][0] == [{"case_id": "CASE-001"}] for call in ui.calls)
