@@ -6,7 +6,7 @@ services:
     container_name: stock_inventory_pipeline
     environment:
       SURGICAL_PLATFORM_ROOT: /app
-      MINIO_ENDPOINT: http://stock_minio:9000
+      MINIO_ENDPOINT: http://stock-minio:9000
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
       MINIO_BUCKET: ${MINIO_BUCKET:-stock-inventory}
@@ -31,7 +31,7 @@ services:
       - --seed
       - ${STOCK_PIPELINE_SEED:-42}
     depends_on:
-      stock_minio:
+      stock-minio:
         condition: service_started
 
   stock_quality:
@@ -60,7 +60,7 @@ services:
     container_name: stock_inventory_publish
     environment:
       SURGICAL_PLATFORM_ROOT: /app
-      MINIO_ENDPOINT: http://stock_minio:9000
+      MINIO_ENDPOINT: http://stock-minio:9000
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
       MINIO_BUCKET: ${MINIO_BUCKET:-stock-inventory}
@@ -76,7 +76,7 @@ services:
     depends_on:
       stock_quality:
         condition: service_completed_successfully
-      stock_minio:
+      stock-minio:
         condition: service_started
 
   stock_streamlit:
@@ -87,7 +87,7 @@ services:
     environment:
       SURGICAL_PLATFORM_ROOT: /app
       STOCK_DASHBOARD_STORAGE_MODE: object_store
-      MINIO_ENDPOINT: http://stock_minio:9000
+      MINIO_ENDPOINT: http://stock-minio:9000
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
       MINIO_BUCKET: ${MINIO_BUCKET:-stock-inventory}
@@ -99,11 +99,11 @@ services:
     depends_on:
       stock_publish:
         condition: service_completed_successfully
-      stock_minio:
+      stock-minio:
         condition: service_started
     restart: unless-stopped
 
-  stock_minio:
+  stock-minio:
     image: minio/minio:latest
     container_name: stock_inventory_minio
     environment:
