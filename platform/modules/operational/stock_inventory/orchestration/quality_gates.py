@@ -23,6 +23,8 @@ REQUIRED_GOLD_ARTIFACTS = (
     "reorder_worklist",
     "usage_cost_summary",
     "inventory_risk_summary",
+    "surgeon_readiness_summary",
+    "procedure_readiness_summary",
     "case_readiness_summary_csv",
 )
 
