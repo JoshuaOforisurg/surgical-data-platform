@@ -214,3 +214,29 @@ non-empty, Silver A invalid rows are within threshold, required Silver B tables
 exist, and required Gold dashboard artifacts were published. Results are written
 to `data_lake/quality/manifests/<run_id>.json`. The command exits non-zero when
 any required gate fails.
+
+## MinIO and Docker Preview
+
+Run the stock pipeline, quality gates, MinIO artifact publish, and Streamlit UI
+with Docker Compose:
+
+```bash
+docker compose up --build stock_pipeline stock_quality stock_publish stock_streamlit
+```
+
+The Streamlit dashboard is exposed on `http://localhost:8502` by default. MinIO
+is exposed on `http://localhost:9011` with the local development credentials in
+`.env.example`. The pipeline writes local run outputs to `data_lake/`, then
+`orchestration.publish_run_artifacts` publishes the manifests and output files
+to MinIO under `stock_inventory/runs/<run_id>/`.
+
+The Docker dashboard reads Gold artifacts back from MinIO by setting
+`STOCK_DASHBOARD_STORAGE_MODE=object_store`. Local development without Docker
+continues to read Gold manifests directly from `data_lake/gold/manifests/`.
+
+The default Docker run id is `run_docker_preview`. Use a new run id when running
+the compose job repeatedly:
+
+```bash
+STOCK_PIPELINE_RUN_ID=run_$(date +%Y%m%d_%H%M%S) docker compose up --build stock_pipeline stock_quality stock_publish
+```

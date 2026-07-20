@@ -1,0 +1,15 @@
+FROM python:3.12-slim
+
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV SURGICAL_PLATFORM_ROOT=/app
+
+WORKDIR /app
+
+COPY modules/operational/stock_inventory/requirements.txt ./requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt
+
+COPY modules/operational/stock_inventory/ ./
+COPY shared/ ./shared/
+
+CMD ["python", "-m", "orchestration.run_pipeline"]
