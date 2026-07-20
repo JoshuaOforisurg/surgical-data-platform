@@ -38,6 +38,9 @@ def test_quality_gates_pass_for_complete_pipeline_run(tmp_path):
     assert result.status == "passed"
     assert result.failure_count == 0
     assert result.check_count > 20
+    checks = {check["name"]: check for check in result.checks}
+    assert checks["gold.surgeon_readiness_summary.artifact_present"]["passed"] is True
+    assert checks["gold.procedure_readiness_summary.artifact_present"]["passed"] is True
     assert (tmp_path / "quality" / "manifests" / "run_quality_pass.json").exists()
 
 
