@@ -190,23 +190,40 @@ class SilverBTransformer:
         available_by_item: dict[str, int] = defaultdict(int)
         statuses_by_item: dict[str, set[str]] = defaultdict(set)
         for position in stock_positions:
-            available_by_item[position["item_id"]] += int(position.get("quantity_available") or 0)
-            statuses_by_item[position["item_id"]].add(position.get("availability_status") or "unknown")
+            item_id = position["item_id"]
+            availability_status = position.get("availability_status") or "unknown"
+            statuses_by_item[item_id].add(availability_status)
+            if availability_status in {"available", "expiring_soon"}:
+                available_by_item[item_id] += int(position.get("quantity_available") or 0)
 
         substitutes_by_item: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for rule in substitution_rules:
             substitutes_by_item[rule["preferred_item_id"]].append(rule)
 
         readiness = []
-        for demand in demand_rows:
+        ordered_demand = sorted(
+            demand_rows,
+            key=lambda row: (
+                str(row.get("scheduled_start") or ""),
+                str(row.get("case_id") or ""),
+                str(row.get("item_id") or ""),
+            ),
+        )
+        for demand in ordered_demand:
             item_id = demand.get("item_id")
             required_quantity = int(demand.get("required_quantity") or 0)
             available_quantity = available_by_item.get(item_id, 0)
-            shortage_quantity = max(0, required_quantity - available_quantity)
+            allocated_quantity = min(required_quantity, available_quantity)
+            available_by_item[item_id] = max(0, available_quantity - allocated_quantity)
+            shortage_quantity = required_quantity - allocated_quantity
             substitute_options = [
                 rule for rule in substitutes_by_item.get(item_id, [])
                 if available_by_item.get(rule.get("substitute_item_id"), 0) > 0
             ]
+            substitute_available_quantity = sum(
+                available_by_item.get(rule.get("substitute_item_id"), 0)
+                for rule in substitute_options
+            )
             status = self.readiness_status(shortage_quantity, substitute_options)
 
             readiness.append(
@@ -215,17 +232,31 @@ class SilverBTransformer:
                     "case_id": demand["case_id"],
                     "scheduled_start": demand.get("scheduled_start"),
                     "required_by_time": demand.get("required_by_time"),
+                    "hospital": demand.get("hospital"),
+                    "theatre": demand.get("theatre"),
+                    "surgeon_id": demand.get("surgeon_id"),
                     "procedure_name": demand.get("procedure_name"),
+                    "procedure_id": demand.get("procedure_id"),
+                    "procedure_code": demand.get("procedure_code"),
+                    "diagnosis_code": demand.get("diagnosis_code"),
+                    "subspecialty": demand.get("subspecialty"),
                     "surgeon_name": demand.get("surgeon_name"),
+                    "preference_card_uid": demand.get("preference_card_uid"),
+                    "preference_card_version": demand.get("preference_card_version"),
+                    "preference_source": demand.get("preference_source"),
                     "item_id": item_id,
                     "expected_item_name": demand.get("expected_item_name"),
                     "item_type": demand.get("item_type"),
                     "clinical_criticality": demand.get("clinical_criticality"),
+                    "catalogue_match_status": demand.get("catalogue_match_status", "matched"),
                     "required_quantity": required_quantity,
                     "available_quantity": available_quantity,
+                    "allocated_quantity": allocated_quantity,
+                    "remaining_quantity_after_allocation": available_by_item[item_id],
                     "shortage_quantity": shortage_quantity,
                     "stock_statuses": sorted(statuses_by_item.get(item_id, set())),
                     "substitute_item_ids": [rule["substitute_item_id"] for rule in substitute_options],
+                    "substitute_available_quantity": substitute_available_quantity,
                     "readiness_status": status,
                 }
             )
