@@ -51,7 +51,7 @@ generation_manifest.json
 Generate a fresh source bundle:
 
 ```bash
-python3 generate_synthetic_data/main_synthetic_stock_generator.py \
+python3 -m generate_synthetic_data.main_synthetic_stock_generator \
   --output-dir synthetic_data/generated \
   --event-count 250 \
   --movement-count 250 \
@@ -136,9 +136,12 @@ usage_analytics.jsonl
 
 Stock positions enrich lots with catalogue, location, ERP balance, expiry,
 recall, sterility, reorder, and value fields. Case readiness compares upcoming
-case demand with available stock and flags ready, shortage, or substitution
-available states. Usage analytics summarise item movement, issue, waste, return,
-and estimated issue cost signals from stock movements.
+case demand with usable stock and flags ready, shortage, or substitution
+available states. Quarantined, expired, awaiting-sterilisation, and unavailable
+stock is excluded. Cases are processed in scheduled order and primary stock is
+allocated once, so later cases cannot reuse quantity already assigned to an
+earlier case. Usage analytics summarise item movement, issue, waste, return, and
+estimated issue cost signals from stock movements.
 
 ## Gold Outputs
 
@@ -157,7 +160,38 @@ shortage_worklist.json
 reorder_worklist.json
 usage_cost_summary.json
 inventory_risk_summary.json
+surgeon_readiness_summary.json
+procedure_readiness_summary.json
 ```
+
+The surgeon and procedure summaries aggregate case readiness, shortages,
+critical shortages, catalogue mapping gaps, and readiness rates. Every case
+summary retains the source preference card UID and version for traceability.
+
+## Surgeon Preference Handoff
+
+The stock generator can consume the surgeon preference pipeline's operational
+Gold JSON instead of inventing preference-card demand from shared profiles:
+
+```bash
+python3 -m orchestration.run_pipeline \
+  --source-dir synthetic_data/generated \
+  --surgeon-preference-gold \
+    ../surgeon_preference/data_lake/gold/gold_operational_preference_cards.json
+```
+
+This path loads current, non-quarantined preference cards, expands their item
+JSON fields into case demand lines, and resolves item names against the stock
+catalogue. An item that cannot be resolved is assigned an auditable
+`UNMAPPED-*` ID and remains visible as unavailable demand. It is never silently
+dropped or counted as ready.
+
+The recommended local cross-pipeline run order is:
+
+1. Run the surgeon preference pipeline to refresh operational Gold.
+2. Run the stock pipeline with `--surgeon-preference-gold`.
+3. Run the stock quality gates.
+4. Publish the accepted run to MinIO and open Streamlit.
 
 ## Dashboard Service
 
@@ -170,7 +204,8 @@ snapshot = dashboard_snapshot("data_lake/gold/manifests/<run_id>.json")
 ```
 
 The snapshot exposes headline counts, readiness and availability distributions,
-top shortages, reorder lines, and usage/cost rows for operational views.
+top shortages, surgeon and procedure readiness, reorder lines, and usage/cost
+rows for operational views.
 
 Run the local Streamlit view after a Gold run exists:
 
