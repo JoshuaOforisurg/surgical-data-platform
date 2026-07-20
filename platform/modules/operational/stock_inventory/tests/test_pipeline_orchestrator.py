@@ -40,7 +40,7 @@ def test_orchestrator_runs_generator_to_gold(tmp_path):
 
     assert pipeline_manifest["run_id"] == run_id
     assert pipeline_manifest["stages"][-1]["manifest_path"] == str(tmp_path / "gold" / "manifests" / f"{run_id}.json")
-    assert gold_manifest["artifact_count"] == 6
+    assert gold_manifest["artifact_count"] == 8
     assert (tmp_path / "gold" / "records" / run_id / "case_readiness_summary.json").exists()
 
 
