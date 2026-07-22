@@ -12,13 +12,27 @@ import streamlit as st
 from bronze_Ingestion.catalog import BronzeCatalogRepository
 from config.settings import load_settings
 from domain.clinical_reference_service import ClinicalReferenceService
+from streamlit_services.access_control import load_user_from_env, review_block_reason
 from streamlit_renderers.preference_card import build_preference_card, current_preference_rows
+from streamlit_services.draft_review_service import (
+    REVIEW_DECISION_PREFIX,
+    draft_change_rows,
+    draft_display_name,
+    load_pending_drafts,
+    save_review_decision,
+)
 from streamlit_services.streamlit_service import get_storage_client
 
 
 GOLD_OPERATIONAL_KEY = "gold/operational/latest/gold_operational_preference_cards.csv"
 DRAFT_PREFIX = "gold/operational/drafts"
 ENABLE_DRAFT_SUBMISSIONS = os.getenv("ENABLE_DRAFT_SUBMISSIONS", "false").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+ENABLE_DRAFT_REVIEWS = os.getenv("ENABLE_DRAFT_REVIEWS", "false").strip().lower() in {
     "1",
     "true",
     "yes",
@@ -467,8 +481,8 @@ status_col_2.metric("Surgeons", current_df["surgeon_name"].nunique())
 status_col_3.metric("Procedures", current_df["procedure"].nunique() if "procedure" in current_df else 0)
 status_col_4.metric("Pipeline layer", "Gold")
 
-overview_tab, view_tab, edit_tab, create_tab, metadata_tab = st.tabs(
-    ["Overview", "Preference cards", "Draft edit", "Create draft", "Metadata"]
+overview_tab, view_tab, edit_tab, create_tab, review_tab, metadata_tab = st.tabs(
+    ["Overview", "Preference cards", "Draft edit", "Create draft", "Review queue", "Metadata"]
 )
 
 
@@ -744,15 +758,106 @@ with create_tab:
         st.success(f"Draft saved: {key}")
 
 
+with review_tab:
+    st.subheader("Human review queue")
+    st.write(
+        "Draft preference changes stay separate from the published Gold preference card "
+        "until a theatre reviewer records a decision. This Version 2 workflow records "
+        "the decision only; publishing approved changes remains a separate controlled step."
+    )
+
+    current_user = load_user_from_env(os.environ)
+    review_disabled_reason = review_block_reason(current_user, ENABLE_DRAFT_REVIEWS)
+
+    if current_user:
+        st.caption(
+            f"Signed in as {current_user.display_name} ({current_user.email}); "
+            f"roles: {', '.join(current_user.roles) if current_user.roles else 'viewer'}"
+        )
+
+    if review_disabled_reason:
+        st.info(
+            f"{review_disabled_reason} The queue can still be inspected, but approve/reject "
+            "actions require a named authorised reviewer."
+        )
+
+    storage = get_storage_client()
+    pending_drafts = load_pending_drafts(storage, DRAFT_PREFIX)
+    review_keys = storage.list_objects(REVIEW_DECISION_PREFIX)
+
+    review_col_1, review_col_2 = st.columns(2)
+    review_col_1.metric("Pending drafts", len(pending_drafts))
+    review_col_2.metric("Review decisions", len(review_keys))
+
+    if not pending_drafts:
+        st.warning("No pending drafts found in object storage.")
+    else:
+        draft_options = {draft_display_name(draft): draft for draft in pending_drafts}
+        selected_draft_label = st.selectbox("Select draft to review", list(draft_options))
+        selected_draft = draft_options[selected_draft_label]
+
+        context_columns = [
+            ("Draft type", selected_draft.get("draft_type")),
+            ("Status", selected_draft.get("status")),
+            ("Surgeon", selected_draft.get("surgeon_name")),
+            ("Procedure", selected_draft.get("procedure")),
+            ("Created", selected_draft.get("created_at")),
+        ]
+        render_summary_tiles(context_columns)
+
+        changes = draft_change_rows(selected_draft)
+        st.subheader("Proposed changes")
+        if changes:
+            st.dataframe(pd.DataFrame(changes), width="stretch", hide_index=True)
+        else:
+            st.info("This draft does not contain field-level changes.")
+
+        with st.expander("Draft object details"):
+            st.write(selected_draft.get("_object_key"))
+
+        with st.form("draft_review_decision_form"):
+            reviewer = st.text_input(
+                "Reviewer",
+                value=current_user.display_name if current_user else "",
+                disabled=True,
+            )
+            decision = st.selectbox("Decision", ["approved", "needs_changes", "rejected"])
+            comments = st.text_area("Review comments")
+            review_submitted = st.form_submit_button(
+                "Record Review Decision",
+                disabled=review_disabled_reason is not None,
+            )
+
+        if review_submitted:
+            try:
+                review_key = save_review_decision(
+                    storage=storage,
+                    draft=selected_draft,
+                    reviewer=current_user.display_name if current_user else reviewer,
+                    decision=decision,
+                    comments=comments,
+                    reviewer_email=current_user.email if current_user else "",
+                    reviewer_roles=current_user.roles if current_user else (),
+                )
+                st.success(f"Review decision recorded: {review_key}")
+            except ValueError as exc:
+                st.error(str(exc))
+
+
 with metadata_tab:
     st.metric("Gold rows", len(df))
     st.metric("Current cards", len(current_df))
     st.metric("Surgeons", current_df["surgeon_name"].nunique())
     st.metric("Procedures", current_df["procedure"].nunique() if "procedure" in current_df else 0)
-    draft_keys = get_storage_client().list_objects(DRAFT_PREFIX)
+    storage = get_storage_client()
+    draft_keys = storage.list_objects(DRAFT_PREFIX)
+    review_keys = storage.list_objects(REVIEW_DECISION_PREFIX)
     st.metric("Drafts pending", len(draft_keys))
+    st.metric("Review decisions", len(review_keys))
     if draft_keys:
         st.dataframe(pd.DataFrame({"draft_key": draft_keys[-25:]}), width="stretch")
+    if review_keys:
+        st.dataframe(pd.DataFrame({"review_decision_key": review_keys[-25:]}), width="stretch")
 
     postgres_metadata = load_postgres_metadata()
     postgres_health = postgres_metadata["health"]
