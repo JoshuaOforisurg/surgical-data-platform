@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -140,9 +141,20 @@ def parse_run_date(value: str | None) -> datetime | None:
     return parsed.astimezone(timezone.utc)
 
 
+def env_path(name: str, default: Path | None = None) -> str | None:
+    value = os.getenv(name)
+    if value is None or value.strip() == "":
+        return str(default) if default is not None else None
+    return value.strip()
+
+
 def main(argv: Iterable[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Run the full stock inventory pipeline from sources to Gold outputs.")
-    parser.add_argument("--source-dir", default=str(SYNTHETIC_GENERATED_DIR), help="Source output/input directory.")
+    parser.add_argument(
+        "--source-dir",
+        default=env_path("STOCK_PIPELINE_SOURCE_DIR", SYNTHETIC_GENERATED_DIR),
+        help="Source output/input directory. Defaults to STOCK_PIPELINE_SOURCE_DIR when set.",
+    )
     parser.add_argument("--run-id", default=None, help="Optional deterministic run id.")
     parser.add_argument("--event-count", type=non_negative_int, default=250, help="Synthetic scanner event count.")
     parser.add_argument("--movement-count", type=non_negative_int, default=250, help="Synthetic stock movement count.")
@@ -161,8 +173,11 @@ def main(argv: Iterable[str] | None = None) -> None:
     )
     parser.add_argument(
         "--surgeon-preference-gold",
-        default=None,
-        help="Optional surgeon preference operational Gold JSON used to generate case demand.",
+        default=env_path("SURGEON_PREFERENCE_GOLD_PATH"),
+        help=(
+            "Optional surgeon preference operational Gold JSON used to generate case demand. "
+            "Defaults to SURGEON_PREFERENCE_GOLD_PATH when set."
+        ),
     )
     parser.add_argument(
         "--canonical-format-priority",
