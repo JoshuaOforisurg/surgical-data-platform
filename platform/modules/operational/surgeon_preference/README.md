@@ -4,6 +4,8 @@ Production-oriented local pipeline for messy surgeon preference data.
 
 Live demo: [www.surgeonpreference.com](https://www.surgeonpreference.com)
 
+Public contact: `info@surgeonpreference.com` .
+
 ## Version 1 Status
 
 Version 1 of the Surgeon Preference pipeline is complete as a standalone
@@ -204,6 +206,9 @@ pipeline_audit.pipeline_runs
 metadata_catalog.object_store_objects
 metadata_catalog.gold_artifacts
 iceberg_catalog.catalog_bootstrap
+app_workflow.app_users
+app_workflow.draft_reviews
+app_workflow.audit_events
 ```
 
 Useful inspection queries:
@@ -221,6 +226,16 @@ order by layer, artifact_type;
 
 select *
 from iceberg_catalog.catalog_bootstrap;
+
+select reviewed_at, decision, reviewer_email, surgeon_name, procedure
+from app_workflow.draft_reviews
+order by reviewed_at desc
+limit 20;
+
+select user_email, display_name, roles, status, auth_provider, last_seen_at
+from app_workflow.app_users
+order by updated_at desc
+limit 50;
 ```
 
 ## Iceberg Status
@@ -270,19 +285,97 @@ in smaller catalogue modules.
 
 ## Frontline Drafts
 
-Streamlit reads the current operational Gold file from object storage and
-allows staff to save draft edits or new draft preference cards. Drafts are
+Streamlit reads the current operational Gold file from object storage and lets
+authorised users save draft edits or new draft preference cards. Drafts are
 written under `gold/operational/drafts/` with `pending_review` status. They are
 not silently promoted over the operational Gold card.
+
+Authorised review decisions are archived under
+`gold/operational/draft_reviews/` and written into the Postgres
+`app_workflow` schema. Blob storage remains the immutable evidence archive;
+Postgres provides the searchable workflow ledger for reviewer identity, roles,
+decision, comments, and audit events.
+
+Once a reviewer records a decision, the draft object is overwritten with a
+closed lifecycle status so it no longer appears in the pending review queue:
+
+```text
+approved -> approved_pending_publish
+needs_changes -> changes_requested
+rejected -> rejected
+```
+
+Approved drafts are not automatically promoted into the published Gold card.
+That publishing step remains deliberately separate so Version 2 can add a
+second controlled action for promotion, rollback, and version comparison.
 
 For a public demo, draft submissions are disabled by default:
 
 ```bash
 ENABLE_DRAFT_SUBMISSIONS=false
+ENABLE_DRAFT_REVIEWS=false
+ENABLE_DRAFT_PUBLISHING=false
 ```
 
 Set `ENABLE_DRAFT_SUBMISSIONS=true` only in a controlled environment with
-authentication, review controls, and abuse protection.
+authentication, review controls, and abuse protection. A user also needs one
+of these roles before the app will allow draft submission:
+
+```text
+editor
+reviewer
+admin
+```
+
+The `app_workflow.app_users` table gives the app its first invite-only product
+foundation. New authenticated users can be recorded as `pending_access`, while
+approved users should be set to `active`. Suspended users remain visible in the
+registry but cannot submit, review, or publish:
+
+```sql
+update app_workflow.app_users
+set status = 'active',
+    roles = array['authenticated', 'editor'],
+    updated_at = current_timestamp
+where user_email = 'person@example.com';
+
+update app_workflow.app_users
+set status = 'suspended',
+    updated_at = current_timestamp
+where user_email = 'person@example.com';
+```
+
+For local development only, allowlists can simulate roles:
+
+```bash
+APP_CURRENT_USER_EMAIL=editor@example.com
+APP_CURRENT_USER_NAME="Local Editor"
+APP_EDITOR_ALLOWLIST=editor@example.com
+APP_REVIEWER_ALLOWLIST=reviewer@example.com
+APP_ADMIN_ALLOWLIST=admin@example.com
+```
+
+## Product Authentication Direction
+
+Version 2 should use platform-managed authentication rather than storing
+passwords in this Streamlit app. In Azure, the intended pattern is:
+
+```text
+User sign-in
+    -> Azure Container Apps authentication / Microsoft Entra ID
+    -> verified identity headers
+    -> app_workflow.app_users status and role lookup
+    -> Streamlit role checks
+    -> review or publish action
+    -> Postgres workflow audit
+```
+
+Local development can still simulate an authenticated user with
+`APP_CURRENT_USER_EMAIL`, `APP_REVIEWER_ALLOWLIST`, and
+`APP_ADMIN_ALLOWLIST`. In Azure, the app can read the verified
+`x-ms-client-principal` headers and then apply the same allowlist/role checks.
+Reviewer and publisher permissions stay separate: reviewers can approve or
+reject drafts, while only admins can publish approved drafts into Gold.
 
 ## Azure And FHIR Learning Plan
 
