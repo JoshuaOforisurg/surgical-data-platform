@@ -4,11 +4,15 @@ import pytest
 
 from streamlit_services.draft_review_service import (
     REVIEW_DECISION_PREFIX,
+    build_reviewed_draft,
     build_review_decision,
     draft_change_rows,
     draft_display_name,
+    load_drafts,
     load_pending_drafts,
     save_review_decision,
+    save_reviewed_draft,
+    save_review_payload,
 )
 
 
@@ -122,3 +126,68 @@ def test_save_review_decision_writes_an_audit_object():
     assert saved["reviewer_email"] == "reviewer@example.com"
     assert saved["reviewer_roles"] == ["reviewer"]
     assert saved["comments"] == "Add implant tray size."
+
+
+def test_save_review_payload_preserves_existing_review_id():
+    storage = FakeStorage({})
+    review = {
+        "review_id": "fixed-review-id",
+        "decision": "approved",
+        "reviewer": "Theatre Coordinator",
+    }
+
+    key = save_review_payload(storage, review)
+
+    assert key.startswith(f"{REVIEW_DECISION_PREFIX}/")
+    assert key.endswith("_fixed-review-id.json")
+    assert json.loads(storage.objects[key]) == review
+
+
+def test_reviewed_draft_status_maps_review_decision_without_mutating_original():
+    draft = _draft()
+    draft["_object_key"] = "gold/operational/drafts/003.json"
+    review = build_review_decision(
+        draft=draft,
+        reviewer="Theatre Coordinator",
+        decision="approved",
+        comments="Ready for publishing control.",
+        reviewer_email="reviewer@example.com",
+        reviewer_roles=("reviewer",),
+    )
+
+    updated = build_reviewed_draft(draft, review, "gold/operational/draft_reviews/review.json")
+
+    assert draft["status"] == "pending_review"
+    assert updated["status"] == "approved_pending_publish"
+    assert updated["review_decision"] == "approved"
+    assert updated["review_id"] == review["review_id"]
+    assert updated["review_object_key"] == "gold/operational/draft_reviews/review.json"
+    assert updated["review_comments"] == "Ready for publishing control."
+    assert "_object_key" not in updated
+
+
+def test_save_reviewed_draft_overwrites_original_draft_and_removes_from_pending_queue():
+    draft_key = "gold/operational/drafts/003.json"
+    draft = _draft()
+    draft["_object_key"] = draft_key
+    storage = FakeStorage({draft_key: json.dumps(_draft())})
+    review = build_review_decision(
+        draft=draft,
+        reviewer="Theatre Coordinator",
+        decision="needs_changes",
+        comments="Clarify implant tray.",
+        reviewer_email="reviewer@example.com",
+        reviewer_roles=("reviewer",),
+    )
+
+    updated = save_reviewed_draft(
+        storage,
+        draft,
+        review,
+        "gold/operational/draft_reviews/review.json",
+    )
+
+    assert updated["status"] == "changes_requested"
+    assert json.loads(storage.objects[draft_key])["status"] == "changes_requested"
+    assert load_pending_drafts(storage, "gold/operational/drafts") == []
+    assert load_drafts(storage, "gold/operational/drafts")[0]["review_decision"] == "needs_changes"
