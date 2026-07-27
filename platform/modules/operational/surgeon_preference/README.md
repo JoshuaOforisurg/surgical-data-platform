@@ -166,6 +166,47 @@ or DBeaver, connect to host `127.0.0.1` on port `5433` by default. The
 container still uses port `5432` internally, but the host port is shifted to
 avoid clashing with a native Postgres install on the laptop.
 
+## Web App Image Deployment
+
+Build and push web app images from the `platform/` directory so the Dockerfile
+can copy both the surgeon preference module and shared platform code:
+
+```bash
+cd /Users/joshuaofori/Desktop/surgical_data_platform/platform
+docker build \
+  -f modules/operational/surgeon_preference/Dockerfile \
+  -t acrsurgeonprefdevjo.azurecr.io/surgeon-preference:web-YYYYMMDD-description .
+
+docker push acrsurgeonprefdevjo.azurecr.io/surgeon-preference:web-YYYYMMDD-description
+```
+
+The latest V2 access-management image pushed to ACR is:
+
+```text
+acrsurgeonprefdevjo.azurecr.io/surgeon-preference:web-20260727-v2-access-83924b9
+```
+
+If the local Azure CLI is unavailable, use the official Azure CLI container
+with the local Azure profile mounted:
+
+```bash
+docker run --rm -it \
+  -v "$HOME/.azure:/root/.azure" \
+  mcr.microsoft.com/azure-cli:latest \
+  az login --use-device-code
+
+docker run --rm \
+  -v "$HOME/.azure:/root/.azure" \
+  mcr.microsoft.com/azure-cli:latest \
+  az containerapp update \
+    --name ca-surgeon-preference-dev \
+    --resource-group rg-surgeon-preference-dev \
+    --image acrsurgeonprefdevjo.azurecr.io/surgeon-preference:web-20260727-v2-access-83924b9
+```
+
+After Azure creates the new revision, confirm the live site loads through
+`https://www.surgeonpreference.com`.
+
 ## Storage Layout
 
 The same logical prefixes are used in local MinIO and Azure Blob Storage.
