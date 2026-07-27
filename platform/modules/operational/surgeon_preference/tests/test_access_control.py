@@ -10,6 +10,7 @@ from streamlit_services.access_control import (
     publish_block_reason,
     review_block_reason,
     submission_block_reason,
+    user_management_block_reason,
 )
 
 
@@ -106,6 +107,30 @@ def test_suspended_user_cannot_submit_review_or_publish():
     )
     assert publish_block_reason(user, publish_feature_enabled=True) == (
         "admin@example.com is not active in the Surgeon Preference user registry."
+    )
+    assert user_management_block_reason(user) == (
+        "admin@example.com is not active in the Surgeon Preference user registry."
+    )
+
+
+def test_only_active_admin_can_manage_users():
+    admin = AppUser(
+        email="admin@example.com",
+        display_name="Admin",
+        roles=("admin", "authenticated"),
+    )
+    editor = AppUser(
+        email="editor@example.com",
+        display_name="Editor",
+        roles=("authenticated", "editor"),
+    )
+
+    assert user_management_block_reason(admin) is None
+    assert user_management_block_reason(editor) == (
+        "editor@example.com is not authorised to manage Surgeon Preference users."
+    )
+    assert user_management_block_reason(None) == (
+        "No authenticated administrator identity was found."
     )
 
 

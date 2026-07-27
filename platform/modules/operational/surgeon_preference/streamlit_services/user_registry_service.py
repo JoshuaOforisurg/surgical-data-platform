@@ -75,3 +75,35 @@ def sync_user_with_registry(
         return user, f"Postgres user registry could not be reached; using identity roles only: {exc}"
 
     return merge_registry_user(user, registry_row), None
+
+
+def update_user_access(
+    settings: PostgresSettings | None,
+    target_email: str,
+    display_name: str,
+    roles: list[str],
+    status: str,
+    actor: AppUser,
+    repository_factory=BronzeCatalogRepository,
+) -> tuple[dict[str, Any] | None, str | None]:
+    if settings is None:
+        return None, "Postgres user registry is not configured."
+
+    try:
+        repository = repository_factory(settings)
+        repository.initialise()
+        updated = repository.update_app_user_access(
+            user_email=target_email,
+            display_name=display_name,
+            roles=roles,
+            status=status,
+            actor_email=actor.email,
+            actor_name=actor.display_name,
+            actor_roles=list(actor.roles),
+        )
+    except ValueError as exc:
+        return None, str(exc)
+    except Exception as exc:
+        return None, f"Postgres user registry could not be updated: {exc}"
+
+    return updated, None

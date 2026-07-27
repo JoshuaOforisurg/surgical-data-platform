@@ -3,6 +3,7 @@ from streamlit_services.user_registry_service import (
     initial_registry_status,
     merge_registry_user,
     sync_user_with_registry,
+    update_user_access,
 )
 
 
@@ -18,6 +19,15 @@ class FakeRepository:
     def upsert_app_user_seen(self, **kwargs):
         self.seen_payload = kwargs
         return self.row
+
+    def update_app_user_access(self, **kwargs):
+        self.seen_payload = kwargs
+        return {
+            "user_email": kwargs["user_email"],
+            "display_name": kwargs["display_name"],
+            "roles": kwargs["roles"],
+            "status": kwargs["status"],
+        }
 
 
 def test_initial_registry_status_keeps_unprivileged_users_pending():
@@ -134,3 +144,60 @@ def test_sync_user_registers_seen_identity_and_returns_registry_roles():
     assert synced.display_name == "Approved Editor"
     assert synced.roles == ("authenticated", "editor")
     assert synced.status == "active"
+
+
+def test_update_user_access_writes_admin_change_request():
+    actor = AppUser(
+        email="admin@example.com",
+        display_name="Admin",
+        roles=("admin", "authenticated"),
+    )
+    repository = FakeRepository(row=None)
+
+    updated, error = update_user_access(
+        settings=object(),
+        target_email="Person@Example.Com",
+        display_name="Person",
+        roles=["authenticated", "editor"],
+        status="active",
+        actor=actor,
+        repository_factory=lambda settings: repository,
+    )
+
+    assert error is None
+    assert repository.initialised is True
+    assert repository.seen_payload == {
+        "user_email": "Person@Example.Com",
+        "display_name": "Person",
+        "roles": ["authenticated", "editor"],
+        "status": "active",
+        "actor_email": "admin@example.com",
+        "actor_name": "Admin",
+        "actor_roles": ["admin", "authenticated"],
+    }
+    assert updated == {
+        "user_email": "Person@Example.Com",
+        "display_name": "Person",
+        "roles": ["authenticated", "editor"],
+        "status": "active",
+    }
+
+
+def test_update_user_access_returns_validation_errors():
+    actor = AppUser(
+        email="admin@example.com",
+        display_name="Admin",
+        roles=("admin", "authenticated"),
+    )
+
+    updated, error = update_user_access(
+        settings=None,
+        target_email="person@example.com",
+        display_name="Person",
+        roles=["editor"],
+        status="active",
+        actor=actor,
+    )
+
+    assert updated is None
+    assert error == "Postgres user registry is not configured."

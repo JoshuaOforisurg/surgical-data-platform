@@ -14,10 +14,18 @@ from bronze_Ingestion.catalog import BronzeCatalogRepository
 from config.settings import load_settings
 from domain.clinical_reference_service import ClinicalReferenceService
 from streamlit_services.access_control import (
+    ACTIVE_STATUS,
+    ADMIN_ROLE,
+    AUTHENTICATED_ROLE,
+    EDITOR_ROLE,
+    PENDING_ACCESS_STATUS,
+    REVIEWER_ROLE,
+    SUSPENDED_STATUS,
     load_current_user,
     publish_block_reason,
     review_block_reason,
     submission_block_reason,
+    user_management_block_reason,
 )
 from streamlit_renderers.preference_card import build_preference_card, current_preference_rows
 from streamlit_services.draft_review_service import (
@@ -40,7 +48,7 @@ from streamlit_services.publishing_service import (
     save_published_gold,
 )
 from streamlit_services.streamlit_service import get_storage_client
-from streamlit_services.user_registry_service import sync_user_with_registry
+from streamlit_services.user_registry_service import sync_user_with_registry, update_user_access
 
 
 GOLD_OPERATIONAL_KEY = "gold/operational/latest/gold_operational_preference_cards.csv"
@@ -705,7 +713,7 @@ status_col_2.metric("Surgeons", current_df["surgeon_name"].nunique())
 status_col_3.metric("Procedures", current_df["procedure"].nunique() if "procedure" in current_df else 0)
 status_col_4.metric("Pipeline layer", "Gold")
 
-overview_tab, view_tab, edit_tab, create_tab, review_tab, publish_tab, metadata_tab = st.tabs(
+overview_tab, view_tab, edit_tab, create_tab, review_tab, publish_tab, access_tab, metadata_tab = st.tabs(
     [
         "Overview",
         "Preference cards",
@@ -713,6 +721,7 @@ overview_tab, view_tab, edit_tab, create_tab, review_tab, publish_tab, metadata_
         "Create draft",
         "Review queue",
         "Publish queue",
+        "Access",
         "Metadata",
     ]
 )
@@ -809,6 +818,17 @@ def render_field_list(items: list[tuple[str, object]]) -> None:
             "</div>"
         )
     st.markdown(f'<div class="sp-field-list">{"".join(rows)}</div>', unsafe_allow_html=True)
+
+
+def normalise_role_values(value) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple, set)):
+        return sorted({str(item).strip().lower() for item in value if str(item).strip()})
+    text = str(value).strip()
+    if text.startswith("{") and text.endswith("}"):
+        text = text[1:-1]
+    return sorted({item.strip().lower() for item in text.split(",") if item.strip()})
 
 
 def render_card(card: dict) -> None:
@@ -1282,6 +1302,111 @@ with publish_tab:
                         )
                 except ValueError as exc:
                     st.error(str(exc))
+
+
+with access_tab:
+    st.subheader("Access management")
+    st.write(
+        "Manage who can create drafts, review changes, or publish approved preference cards. "
+        "This is an admin-only control surface backed by the Postgres workflow audit."
+    )
+
+    access_disabled_reason = user_management_block_reason(current_user)
+    if current_user:
+        st.caption(
+            f"Signed in as {current_user.display_name} ({current_user.email}); "
+            f"roles: {', '.join(current_user.roles) if current_user.roles else 'viewer'}; "
+            f"status: {current_user.status}"
+        )
+
+    if access_disabled_reason:
+        st.info(f"{access_disabled_reason} Existing users can still be viewed in Metadata.")
+    else:
+        postgres_settings = load_settings().postgres
+        if not postgres_settings:
+            st.warning("Postgres user registry is not configured for this deployment.")
+        else:
+            postgres_metadata = load_postgres_metadata()
+            app_users_df = postgres_metadata.get("app_users", pd.DataFrame())
+            if app_users_df.empty:
+                st.info(
+                    "No app users have been recorded yet. You can pre-register the first "
+                    "approved user below."
+                )
+            else:
+                st.dataframe(app_users_df, width="stretch", hide_index=True)
+
+            user_options = []
+            if not app_users_df.empty and "user_email" in app_users_df.columns:
+                user_options = app_users_df["user_email"].dropna().astype(str).tolist()
+            user_options = ["Invite or type new user", *user_options]
+
+            selected_access_user = st.selectbox(
+                "User to update",
+                user_options,
+                key="access_user",
+            )
+            selected_user_row = None
+            if selected_access_user != "Invite or type new user" and not app_users_df.empty:
+                matches = app_users_df[app_users_df["user_email"].astype(str) == selected_access_user]
+                if not matches.empty:
+                    selected_user_row = matches.iloc[0].to_dict()
+
+            with st.form("access_management_form"):
+                target_email = st.text_input(
+                    "User email",
+                    value="" if selected_user_row is None else str(selected_user_row.get("user_email") or ""),
+                )
+                target_display_name = st.text_input(
+                    "Display name",
+                    value="" if selected_user_row is None else str(selected_user_row.get("display_name") or ""),
+                )
+                current_status = (
+                    str(selected_user_row.get("status") or PENDING_ACCESS_STATUS)
+                    if selected_user_row
+                    else PENDING_ACCESS_STATUS
+                )
+                target_status = st.selectbox(
+                    "Status",
+                    [PENDING_ACCESS_STATUS, ACTIVE_STATUS, SUSPENDED_STATUS],
+                    index=[PENDING_ACCESS_STATUS, ACTIVE_STATUS, SUSPENDED_STATUS].index(current_status)
+                    if current_status in {PENDING_ACCESS_STATUS, ACTIVE_STATUS, SUSPENDED_STATUS}
+                    else 0,
+                )
+                current_roles = (
+                    normalise_role_values(selected_user_row.get("roles"))
+                    if selected_user_row
+                    else [AUTHENTICATED_ROLE, EDITOR_ROLE]
+                )
+                target_roles = st.multiselect(
+                    "Roles",
+                    [AUTHENTICATED_ROLE, EDITOR_ROLE, REVIEWER_ROLE, ADMIN_ROLE],
+                    default=[
+                        role
+                        for role in current_roles
+                        if role in {AUTHENTICATED_ROLE, EDITOR_ROLE, REVIEWER_ROLE, ADMIN_ROLE}
+                    ],
+                )
+                save_access = st.form_submit_button("Save Access Change")
+
+            if save_access:
+                updated_user, error_message = update_user_access(
+                    settings=postgres_settings,
+                    target_email=target_email,
+                    display_name=target_display_name or target_email,
+                    roles=target_roles,
+                    status=target_status,
+                    actor=current_user,
+                )
+                if error_message:
+                    st.error(error_message)
+                else:
+                    load_postgres_metadata.clear()
+                    st.success(f"Access updated for {updated_user['user_email']}.")
+                    st.caption(
+                        f"Status: {updated_user['status']}; "
+                        f"roles: {', '.join(updated_user['roles'])}"
+                    )
 
 
 with metadata_tab:

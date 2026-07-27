@@ -15,6 +15,8 @@ from config.settings import PostgresSettings
 
 
 LOGGER = logging.getLogger(__name__)
+APP_USER_STATUSES = {"pending_access", "active", "suspended"}
+APP_USER_ROLES = {"authenticated", "editor", "reviewer", "admin"}
 
 
 def _json_safe(value: Any) -> Any:
@@ -463,6 +465,117 @@ class BronzeCatalogRepository:
                 rows = cur.fetchall()
 
         return [dict(row) for row in rows]
+
+    def update_app_user_access(
+        self,
+        user_email: str,
+        display_name: str,
+        roles: list[str],
+        status: str,
+        actor_email: str,
+        actor_name: str,
+        actor_roles: list[str],
+    ) -> Optional[Dict[str, Any]]:
+        if not self.enabled:
+            return None
+
+        normalised_email = user_email.strip().lower()
+        normalised_actor_email = actor_email.strip().lower()
+        normalised_status = status.strip().lower()
+        safe_roles = sorted({role.strip().lower() for role in roles if role.strip()})
+
+        if not normalised_email:
+            raise ValueError("User email is required.")
+        if "@" not in normalised_email:
+            raise ValueError("User email must look like an email address.")
+        if normalised_status not in APP_USER_STATUSES:
+            raise ValueError(f"Invalid user status: {status}")
+        invalid_roles = sorted(set(safe_roles) - APP_USER_ROLES)
+        if invalid_roles:
+            raise ValueError(f"Invalid app user roles: {', '.join(invalid_roles)}")
+        if "authenticated" not in safe_roles:
+            safe_roles = ["authenticated", *safe_roles]
+        if normalised_email == normalised_actor_email:
+            if normalised_status != "active":
+                raise ValueError("Administrators cannot suspend or deactivate their own account.")
+            if "admin" not in safe_roles:
+                raise ValueError("Administrators cannot remove their own admin role.")
+
+        event_payload = {
+            "user_email": normalised_email,
+            "display_name": display_name.strip() or normalised_email,
+            "roles": safe_roles,
+            "status": normalised_status,
+            "actor_email": normalised_actor_email,
+            "actor_name": actor_name.strip() or normalised_actor_email,
+            "actor_roles": actor_roles,
+        }
+
+        with psycopg2.connect(self.settings.psycopg2_dsn) as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    INSERT INTO app_workflow.app_users (
+                        user_email,
+                        display_name,
+                        roles,
+                        status,
+                        auth_provider
+                    )
+                    VALUES (%s, %s, %s, %s, 'manual_admin')
+                    ON CONFLICT (user_email)
+                    DO UPDATE SET display_name = EXCLUDED.display_name,
+                                  roles = EXCLUDED.roles,
+                                  status = EXCLUDED.status,
+                                  auth_provider = EXCLUDED.auth_provider,
+                                  updated_at = CURRENT_TIMESTAMP
+                    RETURNING
+                        user_email,
+                        display_name,
+                        roles,
+                        status,
+                        auth_provider,
+                        created_at,
+                        updated_at,
+                        last_seen_at
+                    """,
+                    (
+                        normalised_email,
+                        display_name.strip() or normalised_email,
+                        safe_roles,
+                        normalised_status,
+                    ),
+                )
+                row = cur.fetchone()
+
+                cur.execute(
+                    """
+                    INSERT INTO app_workflow.audit_events (
+                        event_id,
+                        event_type,
+                        actor_email,
+                        actor_name,
+                        actor_roles,
+                        entity_type,
+                        entity_id,
+                        event_payload
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        str(uuid.uuid4()),
+                        "app_user_access_updated",
+                        normalised_actor_email,
+                        actor_name.strip() or normalised_actor_email,
+                        actor_roles,
+                        "app_user",
+                        normalised_email,
+                        Json(_json_safe(event_payload)),
+                    ),
+                )
+            conn.commit()
+
+        return dict(row) if row else None
 
     def record_draft_submission(self, draft: Dict[str, Any], draft_object_key: str) -> None:
         if not self.enabled:

@@ -52,6 +52,10 @@ class AppUser:
     def can_publish_preferences(self) -> bool:
         return self.is_active and ADMIN_ROLE in self.roles
 
+    @property
+    def can_manage_users(self) -> bool:
+        return self.is_active and ADMIN_ROLE in self.roles
+
 
 def normalise_email(email: str | None) -> str:
     return (email or "").strip().lower()
@@ -209,4 +213,14 @@ def submission_block_reason(user: AppUser | None, submission_feature_enabled: bo
         return f"{user.email} is not active in the Surgeon Preference user registry."
     if not user.can_submit_preferences:
         return f"{user.email} is not authorised to create or edit preference-card drafts."
+    return None
+
+
+def user_management_block_reason(user: AppUser | None) -> str | None:
+    if user is None:
+        return "No authenticated administrator identity was found."
+    if not user.is_active:
+        return f"{user.email} is not active in the Surgeon Preference user registry."
+    if not user.can_manage_users:
+        return f"{user.email} is not authorised to manage Surgeon Preference users."
     return None

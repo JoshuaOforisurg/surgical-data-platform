@@ -36,3 +36,13 @@ def test_user_registry_methods_are_noops_when_postgres_disabled():
         },
         "gold/operational/drafts/draft-1.json",
     )
+
+    assert repository.update_app_user_access(
+        user_email="editor@example.com",
+        display_name="Editor",
+        roles=["authenticated", "editor"],
+        status="active",
+        actor_email="admin@example.com",
+        actor_name="Admin",
+        actor_roles=["admin"],
+    ) is None
