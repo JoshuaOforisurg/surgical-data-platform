@@ -694,7 +694,7 @@ surgeons = current_df["surgeon_name"].dropna().unique().tolist()
 st.markdown(
     """
 <section class="sp-hero">
-    <div class="sp-kicker">Version 1 surgical data product</div>
+    <div class="sp-kicker">Version 2 review workflow</div>
     <h1>Surgeon Preference</h1>
     <p class="sp-lead">
         A working theatre operations app for viewing surgeon preference cards,
