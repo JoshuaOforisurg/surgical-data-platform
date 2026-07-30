@@ -17,6 +17,7 @@ PLATFORM_ROOT = REPO_ROOT / "platform"
 STOCK_ROOT = PLATFORM_ROOT / "modules" / "operational" / "stock_inventory"
 SURGEON_ROOT = PLATFORM_ROOT / "modules" / "operational" / "surgeon_preference"
 SHARED_ROOT = PLATFORM_ROOT / "shared"
+EMIT_PROGRESS = False
 
 EXCLUDED_SOURCE_PARTS = {
     ".git",
@@ -137,6 +138,8 @@ def run_command(
     severity: str = "error",
 ) -> CheckResult:
     command_label = " ".join(command)
+    if EMIT_PROGRESS:
+        print(f"RUN {name}: {command_label}", flush=True)
     run_env = os.environ.copy()
     if env:
         run_env.update(env)
@@ -329,12 +332,15 @@ def print_text_result(result: PreflightResult) -> None:
 
 
 def main(argv: Iterable[str] | None = None) -> None:
+    global EMIT_PROGRESS
+
     parser = argparse.ArgumentParser(description="Run platform cloud deployment readiness checks.")
     parser.add_argument("--include-tests", action="store_true", help="Run focused module pytest suites.")
     parser.add_argument("--skip-docker", action="store_true", help="Skip Docker Compose config validation.")
     parser.add_argument("--json", action="store_true", help="Print machine-readable JSON.")
     parser.add_argument("--timeout-seconds", type=int, default=120, help="Timeout for command checks.")
     args = parser.parse_args(list(argv) if argv is not None else None)
+    EMIT_PROGRESS = not args.json
 
     result = run_preflight(
         timeout_seconds=args.timeout_seconds,
