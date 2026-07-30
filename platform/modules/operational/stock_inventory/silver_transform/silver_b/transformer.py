@@ -92,10 +92,16 @@ class SilverBTransformer:
             stock_positions=stock_positions,
             substitution_rules=datasets.get("substitution_rules", []),
         )
+        usage_analytics = self.build_usage_analytics(
+            stock_movements=datasets.get("stock_movements", []),
+            stock_positions=stock_positions,
+            item_lookup=item_lookup,
+        )
 
         outputs = {
             "stock_positions": stock_positions,
             "case_readiness": case_readiness,
+            "usage_analytics": usage_analytics,
         }
 
         table_outputs: list[dict[str, Any]] = []
@@ -184,23 +190,40 @@ class SilverBTransformer:
         available_by_item: dict[str, int] = defaultdict(int)
         statuses_by_item: dict[str, set[str]] = defaultdict(set)
         for position in stock_positions:
-            available_by_item[position["item_id"]] += int(position.get("quantity_available") or 0)
-            statuses_by_item[position["item_id"]].add(position.get("availability_status") or "unknown")
+            item_id = position["item_id"]
+            availability_status = position.get("availability_status") or "unknown"
+            statuses_by_item[item_id].add(availability_status)
+            if availability_status in {"available", "expiring_soon"}:
+                available_by_item[item_id] += int(position.get("quantity_available") or 0)
 
         substitutes_by_item: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for rule in substitution_rules:
             substitutes_by_item[rule["preferred_item_id"]].append(rule)
 
         readiness = []
-        for demand in demand_rows:
+        ordered_demand = sorted(
+            demand_rows,
+            key=lambda row: (
+                str(row.get("scheduled_start") or ""),
+                str(row.get("case_id") or ""),
+                str(row.get("item_id") or ""),
+            ),
+        )
+        for demand in ordered_demand:
             item_id = demand.get("item_id")
             required_quantity = int(demand.get("required_quantity") or 0)
             available_quantity = available_by_item.get(item_id, 0)
-            shortage_quantity = max(0, required_quantity - available_quantity)
+            allocated_quantity = min(required_quantity, available_quantity)
+            available_by_item[item_id] = max(0, available_quantity - allocated_quantity)
+            shortage_quantity = required_quantity - allocated_quantity
             substitute_options = [
                 rule for rule in substitutes_by_item.get(item_id, [])
                 if available_by_item.get(rule.get("substitute_item_id"), 0) > 0
             ]
+            substitute_available_quantity = sum(
+                available_by_item.get(rule.get("substitute_item_id"), 0)
+                for rule in substitute_options
+            )
             status = self.readiness_status(shortage_quantity, substitute_options)
 
             readiness.append(
@@ -209,17 +232,31 @@ class SilverBTransformer:
                     "case_id": demand["case_id"],
                     "scheduled_start": demand.get("scheduled_start"),
                     "required_by_time": demand.get("required_by_time"),
+                    "hospital": demand.get("hospital"),
+                    "theatre": demand.get("theatre"),
+                    "surgeon_id": demand.get("surgeon_id"),
                     "procedure_name": demand.get("procedure_name"),
+                    "procedure_id": demand.get("procedure_id"),
+                    "procedure_code": demand.get("procedure_code"),
+                    "diagnosis_code": demand.get("diagnosis_code"),
+                    "subspecialty": demand.get("subspecialty"),
                     "surgeon_name": demand.get("surgeon_name"),
+                    "preference_card_uid": demand.get("preference_card_uid"),
+                    "preference_card_version": demand.get("preference_card_version"),
+                    "preference_source": demand.get("preference_source"),
                     "item_id": item_id,
                     "expected_item_name": demand.get("expected_item_name"),
                     "item_type": demand.get("item_type"),
                     "clinical_criticality": demand.get("clinical_criticality"),
+                    "catalogue_match_status": demand.get("catalogue_match_status", "matched"),
                     "required_quantity": required_quantity,
                     "available_quantity": available_quantity,
+                    "allocated_quantity": allocated_quantity,
+                    "remaining_quantity_after_allocation": available_by_item[item_id],
                     "shortage_quantity": shortage_quantity,
                     "stock_statuses": sorted(statuses_by_item.get(item_id, set())),
                     "substitute_item_ids": [rule["substitute_item_id"] for rule in substitute_options],
+                    "substitute_available_quantity": substitute_available_quantity,
                     "readiness_status": status,
                 }
             )
@@ -251,6 +288,72 @@ class SilverBTransformer:
             return "substitution_available"
         return "shortage"
 
+    def build_usage_analytics(
+        self,
+        stock_movements: list[dict[str, Any]],
+        stock_positions: list[dict[str, Any]],
+        item_lookup: dict[str, dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        unit_costs_by_item: dict[str, list[float]] = defaultdict(list)
+        for position in stock_positions:
+            unit_cost = position.get("unit_cost_gbp")
+            if unit_cost is not None:
+                unit_costs_by_item[position["item_id"]].append(float(unit_cost))
+
+        grouped: dict[str, dict[str, Any]] = {}
+        for movement in stock_movements:
+            item_id = movement["item_id"]
+            item = item_lookup.get(item_id, {})
+            current = grouped.setdefault(
+                item_id,
+                {
+                    "item_id": item_id,
+                    "canonical_name": movement.get("canonical_name") or item.get("canonical_name"),
+                    "item_type": item.get("item_type"),
+                    "movement_count": 0,
+                    "issued_quantity": 0,
+                    "returned_quantity": 0,
+                    "wasted_quantity": 0,
+                    "adjustment_quantity": 0,
+                    "transfer_quantity": 0,
+                    "receipt_quantity": 0,
+                    "quarantine_quantity": 0,
+                    "case_issue_count": 0,
+                    "estimated_issue_value_gbp": 0.0,
+                },
+            )
+            movement_type = str(movement.get("movement_type") or "")
+            quantity = int(movement.get("quantity") or 0)
+            unit_costs = unit_costs_by_item.get(item_id, [])
+            average_unit_cost = sum(unit_costs) / len(unit_costs) if unit_costs else 0.0
+
+            current["movement_count"] += 1
+            if movement_type == "issue":
+                current["issued_quantity"] += quantity
+                current["estimated_issue_value_gbp"] = round(
+                    float(current["estimated_issue_value_gbp"]) + quantity * average_unit_cost,
+                    2,
+                )
+                if movement.get("case_id"):
+                    current["case_issue_count"] += 1
+            elif movement_type == "return":
+                current["returned_quantity"] += quantity
+            elif movement_type == "waste":
+                current["wasted_quantity"] += quantity
+            elif movement_type == "adjustment":
+                current["adjustment_quantity"] += quantity
+            elif movement_type == "transfer":
+                current["transfer_quantity"] += quantity
+            elif movement_type == "receipt":
+                current["receipt_quantity"] += quantity
+            elif movement_type == "quarantine":
+                current["quarantine_quantity"] += quantity
+
+        return sorted(
+            grouped.values(),
+            key=lambda row: (-float(row["estimated_issue_value_gbp"]), row["canonical_name"] or ""),
+        )
+
     def write_jsonl(self, path: Path, rows: list[dict[str, Any]]) -> None:
         with path.open("w", encoding="utf-8") as file:
             for row in rows:
@@ -273,4 +376,3 @@ def main(argv: Iterable[str] | None = None) -> None:
 
 if __name__ == "__main__":
     main()
-

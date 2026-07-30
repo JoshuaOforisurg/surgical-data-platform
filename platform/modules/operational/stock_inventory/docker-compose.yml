@@ -1,0 +1,122 @@
+services:
+  stock_pipeline:
+    build:
+      context: ../../..
+      dockerfile: modules/operational/stock_inventory/Dockerfile.job
+    container_name: stock_inventory_pipeline
+    environment:
+      SURGICAL_PLATFORM_ROOT: /app
+      STOCK_PIPELINE_SOURCE_DIR: ${STOCK_PIPELINE_SOURCE_DIR:-synthetic_data/generated}
+      SURGEON_PREFERENCE_GOLD_PATH: ${SURGEON_PREFERENCE_GOLD_PATH:-}
+      MINIO_ENDPOINT: http://stock-minio:9000
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_BUCKET: ${MINIO_BUCKET:-stock-inventory}
+      MINIO_ROOT_PREFIX: ${MINIO_ROOT_PREFIX:-stock_inventory}
+    volumes:
+      - ./data_lake:/app/data_lake
+      - ./synthetic_data:/app/synthetic_data
+    command:
+      - python
+      - -m
+      - orchestration.run_pipeline
+      - --source-dir
+      - ${STOCK_PIPELINE_SOURCE_DIR:-synthetic_data/generated}
+      - --run-id
+      - ${STOCK_PIPELINE_RUN_ID:-run_docker_preview}
+      - --event-count
+      - ${STOCK_PIPELINE_EVENT_COUNT:-250}
+      - --movement-count
+      - ${STOCK_PIPELINE_MOVEMENT_COUNT:-250}
+      - --case-count
+      - ${STOCK_PIPELINE_CASE_COUNT:-25}
+      - --seed
+      - ${STOCK_PIPELINE_SEED:-42}
+    depends_on:
+      stock-minio:
+        condition: service_started
+
+  stock_quality:
+    build:
+      context: ../../..
+      dockerfile: modules/operational/stock_inventory/Dockerfile.job
+    container_name: stock_inventory_quality
+    environment:
+      SURGICAL_PLATFORM_ROOT: /app
+    volumes:
+      - ./data_lake:/app/data_lake
+    command:
+      - python
+      - -m
+      - orchestration.quality_gates
+      - --pipeline-manifest
+      - data_lake/pipeline_manifests/${STOCK_PIPELINE_RUN_ID:-run_docker_preview}.json
+    depends_on:
+      stock_pipeline:
+        condition: service_completed_successfully
+
+  stock_publish:
+    build:
+      context: ../../..
+      dockerfile: modules/operational/stock_inventory/Dockerfile.job
+    container_name: stock_inventory_publish
+    environment:
+      SURGICAL_PLATFORM_ROOT: /app
+      MINIO_ENDPOINT: http://stock-minio:9000
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_BUCKET: ${MINIO_BUCKET:-stock-inventory}
+      MINIO_ROOT_PREFIX: ${MINIO_ROOT_PREFIX:-stock_inventory}
+    volumes:
+      - ./data_lake:/app/data_lake
+    command:
+      - python
+      - -m
+      - orchestration.publish_run_artifacts
+      - --pipeline-manifest
+      - data_lake/pipeline_manifests/${STOCK_PIPELINE_RUN_ID:-run_docker_preview}.json
+    depends_on:
+      stock_quality:
+        condition: service_completed_successfully
+      stock-minio:
+        condition: service_started
+
+  stock_streamlit:
+    build:
+      context: ../../..
+      dockerfile: modules/operational/stock_inventory/Dockerfile
+    container_name: stock_inventory_streamlit
+    environment:
+      SURGICAL_PLATFORM_ROOT: /app
+      STOCK_DASHBOARD_STORAGE_MODE: object_store
+      MINIO_ENDPOINT: http://stock-minio:9000
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_BUCKET: ${MINIO_BUCKET:-stock-inventory}
+      MINIO_ROOT_PREFIX: ${MINIO_ROOT_PREFIX:-stock_inventory}
+    ports:
+      - "${STOCK_STREAMLIT_PORT:-8502}:8501"
+    volumes:
+      - ./data_lake:/app/data_lake
+    depends_on:
+      stock_publish:
+        condition: service_completed_successfully
+      stock-minio:
+        condition: service_started
+    restart: unless-stopped
+
+  stock-minio:
+    image: minio/minio:latest
+    container_name: stock_inventory_minio
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+    command: server /data --console-address ":9001"
+    ports:
+      - "${STOCK_MINIO_API_PORT:-9010}:9000"
+      - "${STOCK_MINIO_CONSOLE_PORT:-9011}:9001"
+    volumes:
+      - stock_minio_data:/data
+
+volumes:
+  stock_minio_data:

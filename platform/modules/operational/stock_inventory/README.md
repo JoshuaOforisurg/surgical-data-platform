@@ -51,7 +51,7 @@ generation_manifest.json
 Generate a fresh source bundle:
 
 ```bash
-python3 generate_synthetic_data/main_synthetic_stock_generator.py \
+python3 -m generate_synthetic_data.main_synthetic_stock_generator \
   --output-dir synthetic_data/generated \
   --event-count 250 \
   --movement-count 250 \
@@ -63,6 +63,12 @@ The generator uses a fixed default `--run-date` for reproducibility. Pass a
 different ISO-8601 run date when you want a new anchored synthetic day. Use
 `--print-manifest` to print the full manifest JSON; otherwise the CLI prints a
 short summary and writes the data files to disk.
+
+CSV outputs are intentionally messy by default: spreadsheet-style headers,
+human boolean values, comma-formatted numbers, GBP currency strings, and
+UK-style dates are introduced so the ETL pipeline has realistic cleanup work.
+JSON and JSONL outputs remain clean reference sources. Pass `--clean-sources`
+when you want clean CSV files too.
 
 ## Bronze Ingestion
 
@@ -86,6 +92,14 @@ using the default priority `jsonl,json,csv`. Override that with:
 python3 bronze_ingestion/loader/bronze_pipeline.py \
   --source synthetic_data/generated \
   --canonical-format-priority jsonl,json,csv
+```
+
+To exercise the messy spreadsheet cleanup path, prefer CSV sources:
+
+```bash
+python3 -m orchestration.run_pipeline \
+  --source-dir synthetic_data/generated \
+  --canonical-format-priority csv,jsonl,json
 ```
 
 ## Silver A Normalisation
@@ -117,12 +131,17 @@ Silver B currently writes:
 ```text
 stock_positions.jsonl
 case_readiness.jsonl
+usage_analytics.jsonl
 ```
 
 Stock positions enrich lots with catalogue, location, ERP balance, expiry,
 recall, sterility, reorder, and value fields. Case readiness compares upcoming
-case demand with available stock and flags ready, shortage, or substitution
-available states.
+case demand with usable stock and flags ready, shortage, or substitution
+available states. Quarantined, expired, awaiting-sterilisation, and unavailable
+stock is excluded. Cases are processed in scheduled order and primary stock is
+allocated once, so later cases cannot reuse quantity already assigned to an
+earlier case. Usage analytics summarise item movement, issue, waste, return, and
+estimated issue cost signals from stock movements.
 
 ## Gold Outputs
 
@@ -139,5 +158,155 @@ Gold currently writes:
 case_readiness_summary.json/csv
 shortage_worklist.json
 reorder_worklist.json
+usage_cost_summary.json
 inventory_risk_summary.json
+surgeon_readiness_summary.json
+procedure_readiness_summary.json
 ```
+
+The surgeon and procedure summaries aggregate case readiness, shortages,
+critical shortages, catalogue mapping gaps, and readiness rates. Every case
+summary retains the source preference card UID and version for traceability.
+
+## Surgeon Preference Handoff
+
+The stock generator can consume the surgeon preference pipeline's operational
+Gold JSON instead of inventing preference-card demand from shared profiles:
+
+```bash
+python3 -m orchestration.run_pipeline \
+  --source-dir synthetic_data/generated \
+  --surgeon-preference-gold \
+    ../surgeon_preference/data_lake/gold/gold_operational_preference_cards.json
+```
+
+This path loads current, non-quarantined preference cards, expands their item
+JSON fields into case demand lines, and resolves item names against the stock
+catalogue. An item that cannot be resolved is assigned an auditable
+`UNMAPPED-*` ID and remains visible as unavailable demand. It is never silently
+dropped or counted as ready.
+
+The recommended local cross-pipeline run order is:
+
+1. Run the surgeon preference pipeline to refresh operational Gold.
+2. Run the stock pipeline with `--surgeon-preference-gold`.
+3. Run the stock quality gates.
+4. Publish the accepted run to MinIO and open Streamlit.
+
+## Dashboard Service
+
+Dashboard-facing code can load Gold outputs without knowing the file layout:
+
+```python
+from streamlit_services import dashboard_snapshot
+
+snapshot = dashboard_snapshot("data_lake/gold/manifests/<run_id>.json")
+```
+
+The snapshot exposes headline counts, readiness and availability distributions,
+top shortages, surgeon and procedure readiness, reorder lines, and usage/cost
+rows for operational views.
+
+Run the local Streamlit view after a Gold run exists:
+
+```bash
+streamlit run streamlit_app.py
+```
+
+The app lists available Gold manifests in the sidebar, newest first. If no Gold
+run exists yet, run the full pipeline command below first.
+
+## Full Pipeline Orchestration
+
+Run the complete local pipeline with one command:
+
+```bash
+python3 -m orchestration.run_pipeline \
+  --source-dir synthetic_data/generated \
+  --event-count 250 \
+  --movement-count 250 \
+  --case-count 25 \
+  --seed 42
+```
+
+The orchestrator regenerates synthetic source files by default, ingests them to
+Bronze, transforms through Silver A and Silver B, publishes Gold outputs, and
+writes an end-to-end manifest to `data_lake/pipeline_manifests/<run_id>.json`.
+Use `--no-regenerate-sources` to run the pipeline from files already present in
+the source directory.
+
+## Pipeline Quality Gates
+
+Evaluate a completed pipeline run before using it operationally:
+
+```bash
+python3 -m orchestration.quality_gates \
+  --pipeline-manifest data_lake/pipeline_manifests/<run_id>.json
+```
+
+Quality gates verify that stage manifests exist, stage record counts are
+non-empty, Silver A invalid rows are within threshold, required Silver B tables
+exist, and required Gold dashboard artifacts were published. Results are written
+to `data_lake/quality/manifests/<run_id>.json`. The command exits non-zero when
+any required gate fails.
+
+## MinIO and Docker Preview
+
+Run the stock pipeline, quality gates, MinIO artifact publish, and Streamlit UI
+with Docker Compose:
+
+```bash
+docker compose up --build stock_pipeline stock_quality stock_publish stock_streamlit
+```
+
+The Streamlit dashboard is exposed on `http://localhost:8502` by default. MinIO
+is exposed on `http://localhost:9011` with the local development credentials in
+`.env.example`. The pipeline writes local run outputs to `data_lake/`, then
+`orchestration.publish_run_artifacts` publishes the manifests and output files
+to MinIO under `stock_inventory/runs/<run_id>/`.
+
+The Docker dashboard reads Gold artifacts back from MinIO by setting
+`STOCK_DASHBOARD_STORAGE_MODE=object_store`. Local development without Docker
+continues to read Gold manifests directly from `data_lake/gold/manifests/`.
+
+The default Docker run id is `run_docker_preview`. Use a new run id when running
+the compose job repeatedly:
+
+```bash
+STOCK_PIPELINE_RUN_ID=run_$(date +%Y%m%d_%H%M%S) docker compose up --build stock_pipeline stock_quality stock_publish
+```
+
+To feed demand from the surgeon preference pipeline in a scheduled/container
+run, provide `SURGEON_PREFERENCE_GOLD_PATH`:
+
+```bash
+SURGEON_PREFERENCE_GOLD_PATH=../surgeon_preference/data_lake/gold/gold_operational_preference_cards.json \
+  docker compose up --build stock_pipeline stock_quality stock_publish stock_streamlit
+```
+
+## Cloud Readiness
+
+The module is cloud-ready only when the same containerized flow can run against
+managed object storage and the dashboard can read published Gold artifacts from
+that store. Check the current environment with:
+
+```bash
+python3 -m orchestration.cloud_readiness --require-cross-pipeline
+```
+
+The preflight command fails until production-style values are supplied for:
+
+```text
+MINIO_ENDPOINT
+MINIO_ROOT_USER or MINIO_ACCESS_KEY
+MINIO_ROOT_PASSWORD or MINIO_SECRET_KEY
+MINIO_BUCKET
+MINIO_ROOT_PREFIX
+STOCK_DASHBOARD_STORAGE_MODE=object_store
+SURGEON_PREFERENCE_GOLD_PATH
+```
+
+Local MinIO credentials such as `minioadmin/minioadmin` and endpoints such as
+`localhost` or `stock-minio` are valid for preview only. For cloud deployment,
+replace them with managed S3-compatible storage credentials supplied by the
+deployment platform's secret manager.

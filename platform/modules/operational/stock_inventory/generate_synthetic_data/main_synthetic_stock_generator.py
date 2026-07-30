@@ -4,6 +4,7 @@ import csv
 import hashlib
 import importlib.util
 import json
+import os
 import random
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
@@ -11,7 +12,19 @@ from pathlib import Path
 from typing import Any, Final, Iterable
 
 STOCK_INVENTORY_ROOT: Final[Path] = Path(__file__).resolve().parents[1]
-PLATFORM_ROOT: Final[Path] = Path(__file__).resolve().parents[4]
+
+
+def platform_root() -> Path:
+    configured_root = os.getenv("SURGICAL_PLATFORM_ROOT")
+    candidates = [Path(configured_root)] if configured_root else []
+    candidates.extend(Path(__file__).resolve().parents)
+    for candidate in candidates:
+        if (candidate / "shared" / "catalogue").exists():
+            return candidate
+    raise FileNotFoundError("Unable to locate shared catalogue; set SURGICAL_PLATFORM_ROOT if running packaged.")
+
+
+PLATFORM_ROOT: Final[Path] = platform_root()
 SHARED_CATALOGUE_DIR: Final[Path] = PLATFORM_ROOT / "shared" / "catalogue"
 
 DEFAULT_OUTPUT_DIR: Final[Path] = STOCK_INVENTORY_ROOT / "synthetic_data" / "generated"
@@ -64,6 +77,7 @@ class GenerationConfig:
     seed: int = 42
     run_date: datetime = DEFAULT_RUN_DATE
     messy_sources: bool = True
+    surgeon_preference_gold_path: Path | None = None
 
     def __post_init__(self) -> None:
         event_count = self.event_count if self.event_count is not None else self.count
@@ -653,6 +667,7 @@ def build_upcoming_case_demand(
         case_id = f"CASE-{250000 + idx:06d}"
         surgeon_name = rng.choice(SURGEON_NAMES)
         preference_card_uid = f"pref_{_slug(surgeon_name)[:10]}_{_slug(procedure_name)[:18]}".lower()
+        theatre = rng.choice(THEATRES)
 
         for requirement in _required_items_for_procedure(procedure_name, catalogue_lookup, rng):
             rows.append(
@@ -660,7 +675,7 @@ def build_upcoming_case_demand(
                     "case_id": case_id,
                     "scheduled_start": scheduled_start.isoformat(),
                     "hospital": "Local NHS Trust",
-                    "theatre": rng.choice(THEATRES),
+                    "theatre": theatre,
                     "surgeon_name": surgeon_name,
                     "procedure_name": procedure_name,
                     "procedure_code": procedure["procedure_code"],
@@ -673,6 +688,61 @@ def build_upcoming_case_demand(
                 }
             )
     return rows
+
+
+def build_upcoming_case_demand_from_preferences(
+    catalogue: list[dict[str, Any]],
+    preference_cards: list[dict[str, Any]],
+    run_date: datetime,
+    case_count: int,
+    rng: random.Random,
+) -> tuple[list[dict[str, Any]], Any]:
+    _, resolve_preference_requirements = preference_integration()
+    resolution = resolve_preference_requirements(preference_cards, catalogue)
+    if case_count > 0 and not resolution.cards:
+        raise ValueError("Surgeon preference Gold contains no current cards with item requirements")
+
+    rows = []
+    for idx in range(1, case_count + 1):
+        card = rng.choice(resolution.cards)
+        scheduled_start = run_date + timedelta(days=rng.randint(0, 21), hours=rng.randint(7, 16))
+        case_id = f"CASE-{250000 + idx:06d}"
+        theatre = rng.choice(THEATRES)
+        for requirement in card["requirements"]:
+            rows.append(
+                {
+                    "case_id": case_id,
+                    "scheduled_start": scheduled_start.isoformat(),
+                    "hospital": card["hospital"],
+                    "theatre": theatre,
+                    "surgeon_id": card["surgeon_id"],
+                    "surgeon_name": card["surgeon_name"],
+                    "procedure_name": card["procedure_name"],
+                    "procedure_id": card["procedure_id"],
+                    "procedure_code": card["procedure_code"],
+                    "diagnosis_code": card["diagnosis_code"],
+                    "subspecialty": card["subspecialty"],
+                    "preference_card_uid": card["preference_card_uid"],
+                    "preference_card_version": card["preference_card_version"],
+                    "preference_source": "surgeon_preference_gold",
+                    "required_by_time": (scheduled_start - timedelta(hours=2)).isoformat(),
+                    **requirement,
+                }
+            )
+    return rows, resolution
+
+
+def preference_integration() -> tuple[Any, Any]:
+    try:
+        from integrations.surgeon_preference import load_preference_cards, resolve_preference_requirements
+    except ModuleNotFoundError as exc:
+        if exc.name != "integrations":
+            raise
+        raise RuntimeError(
+            "Run the cross-pipeline generator as a module: "
+            "python3 -m generate_synthetic_data.main_synthetic_stock_generator"
+        ) from exc
+    return load_preference_cards, resolve_preference_requirements
 
 
 def build_substitution_rules(
@@ -853,12 +923,24 @@ def generate_stock_sources(config: GenerationConfig = GenerationConfig()) -> dic
     manual_stocktake = build_manual_stocktake(stock_lots, run_date, rng)
     scanner_events = build_scanner_events(stock_lots, run_date, count=config.event_count, rng=rng)
     stock_movements = build_stock_movements(stock_lots, run_date, count=config.movement_count, rng=rng)
-    case_demand = build_upcoming_case_demand(
-        catalogue,
-        run_date,
-        case_count=config.case_count,
-        rng=rng,
-    )
+    preference_resolution = None
+    if config.surgeon_preference_gold_path:
+        load_preference_cards, _ = preference_integration()
+        preference_cards = load_preference_cards(config.surgeon_preference_gold_path)
+        case_demand, preference_resolution = build_upcoming_case_demand_from_preferences(
+            catalogue,
+            preference_cards,
+            run_date,
+            case_count=config.case_count,
+            rng=rng,
+        )
+    else:
+        case_demand = build_upcoming_case_demand(
+            catalogue,
+            run_date,
+            case_count=config.case_count,
+            rng=rng,
+        )
     substitution_rules = build_substitution_rules(catalogue, rng)
 
     artifacts = {
@@ -908,14 +990,27 @@ def generate_stock_sources(config: GenerationConfig = GenerationConfig()) -> dic
         "movement_count": config.movement_count,
         "case_count": config.case_count,
         "messy_sources": config.messy_sources,
-        "source_basis": "platform.shared.catalogue",
+        "source_basis": (
+            "surgeon_preference.gold+platform.shared.catalogue"
+            if config.surgeon_preference_gold_path
+            else "platform.shared.catalogue"
+        ),
+        "demand_source": {
+            "mode": "surgeon_preference_gold" if config.surgeon_preference_gold_path else "shared_catalogue_profiles",
+            "path": str(config.surgeon_preference_gold_path) if config.surgeon_preference_gold_path else None,
+            **(preference_resolution.summary() if preference_resolution else {}),
+        },
         "clinical_profile_count": len(CLINICAL_PREFERENCE_PROFILES),
         "artifact_count": len(artifacts),
         "artifacts": artifacts,
         "notes": [
             "Manual stocktake output represents spreadsheet-based hospital checks.",
             "Scanner stock events represent barcode/scanning inventory systems.",
-            "Upcoming case demand is derived from surgeon preference clinical profiles.",
+            (
+                "Upcoming case demand is derived from current surgeon preference Gold cards."
+                if config.surgeon_preference_gold_path
+                else "Upcoming case demand is derived from shared surgeon preference clinical profiles."
+            ),
             "Item names are clinically aligned to the shared surgical catalogue.",
             "CSV outputs intentionally include spreadsheet-style formatting when messy_sources is true.",
         ],
@@ -1005,6 +1100,11 @@ def main() -> None:
         action="store_true",
         help="Write clean CSV files instead of messy spreadsheet-style CSV files.",
     )
+    parser.add_argument(
+        "--surgeon-preference-gold",
+        default=None,
+        help="Optional surgeon preference operational Gold JSON used to generate case demand.",
+    )
     args = parser.parse_args()
     event_count = args.event_count if args.event_count is not None else args.count
     movement_count = args.movement_count if args.movement_count is not None else args.count
@@ -1029,6 +1129,9 @@ def main() -> None:
             seed=args.seed,
             run_date=args.run_date,
             messy_sources=not args.clean_sources,
+            surgeon_preference_gold_path=(
+                Path(args.surgeon_preference_gold) if args.surgeon_preference_gold else None
+            ),
         )
     )
     if args.print_manifest:
