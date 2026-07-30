@@ -48,10 +48,14 @@ def render_gold_dashboard(ui: Any, snapshot: DashboardSnapshot | None = None) ->
         ui.subheader("Availability")
         ui.bar_chart(snapshot.availability_status_counts)
 
-    tabs = ui.tabs(["Shortages", "Reorders", "Usage and cost"])
+    tabs = ui.tabs(["Shortages", "Surgeons", "Procedures", "Reorders", "Usage and cost"])
     with tabs[0]:
-        ui.dataframe(snapshot.top_shortages, use_container_width=True, hide_index=True)
+        ui.dataframe(snapshot.top_shortages, width="stretch", hide_index=True)
     with tabs[1]:
-        ui.dataframe(snapshot.top_reorders, use_container_width=True, hide_index=True)
+        ui.dataframe(snapshot.surgeon_readiness, width="stretch", hide_index=True)
     with tabs[2]:
-        ui.dataframe(snapshot.top_usage_costs, use_container_width=True, hide_index=True)
+        ui.dataframe(snapshot.procedure_readiness, width="stretch", hide_index=True)
+    with tabs[3]:
+        ui.dataframe(snapshot.top_reorders, width="stretch", hide_index=True)
+    with tabs[4]:
+        ui.dataframe(snapshot.top_usage_costs, width="stretch", hide_index=True)

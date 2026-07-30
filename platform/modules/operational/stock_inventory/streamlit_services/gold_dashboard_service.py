@@ -35,6 +35,8 @@ class DashboardSnapshot:
     top_shortages: list[dict[str, Any]]
     top_reorders: list[dict[str, Any]]
     top_usage_costs: list[dict[str, Any]]
+    surgeon_readiness: list[dict[str, Any]]
+    procedure_readiness: list[dict[str, Any]]
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -152,6 +154,8 @@ def build_dashboard_snapshot(gold_manifest: dict[str, Any], artifacts: dict[str,
     shortage_worklist = artifacts.get("shortage_worklist", [])
     reorder_worklist = artifacts.get("reorder_worklist", [])
     usage_cost_summary = artifacts.get("usage_cost_summary", [])
+    surgeon_readiness_summary = artifacts.get("surgeon_readiness_summary", [])
+    procedure_readiness_summary = artifacts.get("procedure_readiness_summary", [])
     risk_summary = artifacts.get("inventory_risk_summary", {})
 
     case_status_counts = Counter(row.get("overall_status") for row in case_summary)
@@ -171,6 +175,8 @@ def build_dashboard_snapshot(gold_manifest: dict[str, Any], artifacts: dict[str,
         top_shortages=shortage_worklist[:10],
         top_reorders=reorder_worklist[:10],
         top_usage_costs=usage_cost_summary[:10],
+        surgeon_readiness=surgeon_readiness_summary,
+        procedure_readiness=procedure_readiness_summary,
     )
 
 

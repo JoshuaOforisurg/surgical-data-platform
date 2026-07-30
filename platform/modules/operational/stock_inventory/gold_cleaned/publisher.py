@@ -70,12 +70,15 @@ class GoldInventoryPublisher:
         stock_positions = tables.get("stock_positions", [])
         case_readiness = tables.get("case_readiness", [])
         usage_analytics = tables.get("usage_analytics", [])
+        case_readiness_summary = self.case_readiness_summary(case_readiness)
         artifacts = {
-            "case_readiness_summary": self.case_readiness_summary(case_readiness),
+            "case_readiness_summary": case_readiness_summary,
             "shortage_worklist": self.shortage_worklist(case_readiness),
             "reorder_worklist": self.reorder_worklist(stock_positions),
             "usage_cost_summary": self.usage_cost_summary(usage_analytics),
             "inventory_risk_summary": self.inventory_risk_summary(stock_positions, case_readiness, usage_analytics),
+            "surgeon_readiness_summary": self.surgeon_readiness_summary(case_readiness_summary),
+            "procedure_readiness_summary": self.procedure_readiness_summary(case_readiness_summary),
         }
 
         run_records_dir = self.records_dir / run_id
@@ -143,13 +146,23 @@ class GoldInventoryPublisher:
                 {
                     "case_id": case_id,
                     "scheduled_start": first.get("scheduled_start"),
+                    "hospital": first.get("hospital"),
+                    "theatre": first.get("theatre"),
+                    "surgeon_id": first.get("surgeon_id"),
                     "procedure_name": first.get("procedure_name"),
+                    "procedure_id": first.get("procedure_id"),
                     "surgeon_name": first.get("surgeon_name"),
+                    "preference_card_uid": first.get("preference_card_uid"),
+                    "preference_card_version": first.get("preference_card_version"),
+                    "preference_source": first.get("preference_source"),
                     "required_lines": len(rows),
                     "ready_lines": status_counts.get("ready", 0),
                     "shortage_lines": shortage_lines,
                     "substitution_available_lines": status_counts.get("substitution_available", 0),
                     "critical_shortage_lines": critical_shortage_lines,
+                    "unmapped_requirement_lines": sum(
+                        1 for row in rows if row.get("catalogue_match_status") == "unmatched"
+                    ),
                     "overall_status": overall_status,
                 }
             )
@@ -161,9 +174,13 @@ class GoldInventoryPublisher:
                 "case_id": row["case_id"],
                 "scheduled_start": row.get("scheduled_start"),
                 "procedure_name": row.get("procedure_name"),
+                "surgeon_name": row.get("surgeon_name"),
+                "preference_card_uid": row.get("preference_card_uid"),
+                "preference_card_version": row.get("preference_card_version"),
                 "item_id": row.get("item_id"),
                 "expected_item_name": row.get("expected_item_name"),
                 "clinical_criticality": row.get("clinical_criticality"),
+                "catalogue_match_status": row.get("catalogue_match_status", "matched"),
                 "required_quantity": row.get("required_quantity"),
                 "available_quantity": row.get("available_quantity"),
                 "shortage_quantity": row.get("shortage_quantity"),
@@ -174,6 +191,71 @@ class GoldInventoryPublisher:
             if int(row.get("shortage_quantity") or 0) > 0
         ]
         return sorted(rows, key=lambda row: (row.get("scheduled_start") or "", row["case_id"], row["expected_item_name"] or ""))
+
+    def surgeon_readiness_summary(
+        self,
+        case_summaries: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        return self.readiness_dimension_summary(
+            case_summaries,
+            dimension="surgeon_name",
+            related_dimension="procedure_name",
+            related_count_name="procedure_count",
+        )
+
+    def procedure_readiness_summary(
+        self,
+        case_summaries: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        return self.readiness_dimension_summary(
+            case_summaries,
+            dimension="procedure_name",
+            related_dimension="surgeon_name",
+            related_count_name="surgeon_count",
+        )
+
+    def readiness_dimension_summary(
+        self,
+        case_summaries: list[dict[str, Any]],
+        dimension: str,
+        related_dimension: str,
+        related_count_name: str,
+    ) -> list[dict[str, Any]]:
+        grouped: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for row in case_summaries:
+            grouped[str(row.get(dimension) or "Unknown")].append(row)
+
+        summaries = []
+        for dimension_value, rows in grouped.items():
+            status_counts = Counter(row.get("overall_status") for row in rows)
+            ready_case_count = status_counts.get("ready", 0)
+            case_count = len(rows)
+            summaries.append(
+                {
+                    dimension: dimension_value,
+                    "case_count": case_count,
+                    "ready_case_count": ready_case_count,
+                    "shortage_case_count": status_counts.get("shortage", 0)
+                    + status_counts.get("substitution_available", 0),
+                    "critical_shortage_case_count": status_counts.get("critical_shortage", 0),
+                    "shortage_line_count": sum(int(row.get("shortage_lines") or 0) for row in rows),
+                    "unmapped_requirement_count": sum(
+                        int(row.get("unmapped_requirement_lines") or 0) for row in rows
+                    ),
+                    "readiness_rate_pct": round((ready_case_count / case_count) * 100, 1),
+                    related_count_name: len(
+                        {str(row.get(related_dimension) or "Unknown") for row in rows}
+                    ),
+                }
+            )
+        return sorted(
+            summaries,
+            key=lambda row: (
+                -int(row["critical_shortage_case_count"]),
+                -int(row["shortage_case_count"]),
+                str(row[dimension]).casefold(),
+            ),
+        )
 
     def reorder_worklist(self, stock_positions: list[dict[str, Any]]) -> list[dict[str, Any]]:
         grouped: dict[tuple[str, str], dict[str, Any]] = {}
