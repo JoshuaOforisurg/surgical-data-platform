@@ -6,6 +6,8 @@ services:
     container_name: stock_inventory_pipeline
     environment:
       SURGICAL_PLATFORM_ROOT: /app
+      STOCK_PIPELINE_SOURCE_DIR: ${STOCK_PIPELINE_SOURCE_DIR:-synthetic_data/generated}
+      SURGEON_PREFERENCE_GOLD_PATH: ${SURGEON_PREFERENCE_GOLD_PATH:-}
       MINIO_ENDPOINT: http://stock-minio:9000
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
@@ -19,7 +21,7 @@ services:
       - -m
       - orchestration.run_pipeline
       - --source-dir
-      - synthetic_data/generated
+      - ${STOCK_PIPELINE_SOURCE_DIR:-synthetic_data/generated}
       - --run-id
       - ${STOCK_PIPELINE_RUN_ID:-run_docker_preview}
       - --event-count

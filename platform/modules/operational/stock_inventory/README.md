@@ -275,3 +275,38 @@ the compose job repeatedly:
 ```bash
 STOCK_PIPELINE_RUN_ID=run_$(date +%Y%m%d_%H%M%S) docker compose up --build stock_pipeline stock_quality stock_publish
 ```
+
+To feed demand from the surgeon preference pipeline in a scheduled/container
+run, provide `SURGEON_PREFERENCE_GOLD_PATH`:
+
+```bash
+SURGEON_PREFERENCE_GOLD_PATH=../surgeon_preference/data_lake/gold/gold_operational_preference_cards.json \
+  docker compose up --build stock_pipeline stock_quality stock_publish stock_streamlit
+```
+
+## Cloud Readiness
+
+The module is cloud-ready only when the same containerized flow can run against
+managed object storage and the dashboard can read published Gold artifacts from
+that store. Check the current environment with:
+
+```bash
+python3 -m orchestration.cloud_readiness --require-cross-pipeline
+```
+
+The preflight command fails until production-style values are supplied for:
+
+```text
+MINIO_ENDPOINT
+MINIO_ROOT_USER or MINIO_ACCESS_KEY
+MINIO_ROOT_PASSWORD or MINIO_SECRET_KEY
+MINIO_BUCKET
+MINIO_ROOT_PREFIX
+STOCK_DASHBOARD_STORAGE_MODE=object_store
+SURGEON_PREFERENCE_GOLD_PATH
+```
+
+Local MinIO credentials such as `minioadmin/minioadmin` and endpoints such as
+`localhost` or `stock-minio` are valid for preview only. For cloud deployment,
+replace them with managed S3-compatible storage credentials supplied by the
+deployment platform's secret manager.
