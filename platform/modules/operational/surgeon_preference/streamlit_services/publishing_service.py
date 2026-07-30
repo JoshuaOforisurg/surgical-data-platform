@@ -14,12 +14,17 @@ APPROVED_DRAFT_STATUS = "approved_pending_publish"
 PUBLISHED_DRAFT_STATUS = "published"
 
 
-def load_publishable_drafts(storage, draft_prefix: str, limit: int = 100) -> list[dict[str, Any]]:
+def load_publishable_drafts(
+    storage,
+    draft_prefix: str,
+    limit: int = 100,
+    organisation_id: str | None = None,
+) -> list[dict[str, Any]]:
     from streamlit_services.draft_review_service import load_drafts
 
     return [
         draft
-        for draft in load_drafts(storage, draft_prefix, limit)
+        for draft in load_drafts(storage, draft_prefix, limit, organisation_id)
         if draft.get("status") == APPROVED_DRAFT_STATUS
     ]
 
@@ -134,6 +139,8 @@ def build_publish_event(
     latest_gold_key: str,
     row_count: int,
     published_at: str | None = None,
+    organisation_id: str = "default",
+    organisation_name: str = "Surgeon Preference Demo",
 ) -> dict[str, Any]:
     published_at = published_at or _now_iso()
     return {
@@ -146,6 +153,8 @@ def build_publish_event(
         "publisher": publisher.strip(),
         "publisher_email": publisher_email.strip().lower(),
         "publisher_roles": list(publisher_roles),
+        "organisation_id": organisation_id,
+        "organisation_name": organisation_name,
         "published_at": published_at,
         "published_gold_key": published_gold_key,
         "latest_gold_key": latest_gold_key,

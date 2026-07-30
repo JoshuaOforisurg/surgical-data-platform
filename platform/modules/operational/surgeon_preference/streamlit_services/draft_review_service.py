@@ -13,9 +13,15 @@ DRAFT_STATUS_BY_DECISION = {
 }
 
 
-def load_drafts(storage, draft_prefix: str, limit: int = 100) -> list[dict[str, Any]]:
+def load_drafts(
+    storage,
+    draft_prefix: str,
+    limit: int = 100,
+    organisation_id: str | None = None,
+) -> list[dict[str, Any]]:
     drafts: list[dict[str, Any]] = []
     keys = sorted(storage.list_objects(draft_prefix), reverse=True)
+    organisation_scope = str(organisation_id or "").strip()
 
     for key in keys[:limit]:
         try:
@@ -24,15 +30,23 @@ def load_drafts(storage, draft_prefix: str, limit: int = 100) -> list[dict[str, 
             continue
 
         draft["_object_key"] = key
+        draft_organisation_id = str(draft.get("organisation_id") or "default").strip() or "default"
+        if organisation_scope and draft_organisation_id != organisation_scope:
+            continue
         drafts.append(draft)
 
     return drafts
 
 
-def load_pending_drafts(storage, draft_prefix: str, limit: int = 50) -> list[dict[str, Any]]:
+def load_pending_drafts(
+    storage,
+    draft_prefix: str,
+    limit: int = 50,
+    organisation_id: str | None = None,
+) -> list[dict[str, Any]]:
     return [
         draft
-        for draft in load_drafts(storage, draft_prefix, limit)
+        for draft in load_drafts(storage, draft_prefix, limit, organisation_id)
         if draft.get("status") == "pending_review"
     ]
 
@@ -76,6 +90,8 @@ def build_review_decision(
     comments: str = "",
     reviewer_email: str = "",
     reviewer_roles: tuple[str, ...] = (),
+    organisation_id: str = "default",
+    organisation_name: str = "Surgeon Preference Demo",
 ) -> dict[str, Any]:
     normalised_decision = decision.strip().lower()
     if normalised_decision not in VALID_REVIEW_DECISIONS:
@@ -97,6 +113,8 @@ def build_review_decision(
         "reviewer": reviewer_name,
         "reviewer_email": reviewer_email.strip().lower(),
         "reviewer_roles": list(reviewer_roles),
+        "organisation_id": organisation_id,
+        "organisation_name": organisation_name,
         "comments": comments.strip(),
         "reviewed_at": datetime.now(UTC).isoformat(),
         "source_gold_key": draft.get("source_gold_key"),
@@ -115,6 +133,8 @@ def save_review_decision(
     comments: str = "",
     reviewer_email: str = "",
     reviewer_roles: tuple[str, ...] = (),
+    organisation_id: str = "default",
+    organisation_name: str = "Surgeon Preference Demo",
 ) -> str:
     review = build_review_decision(
         draft=draft,
@@ -123,6 +143,8 @@ def save_review_decision(
         comments=comments,
         reviewer_email=reviewer_email,
         reviewer_roles=reviewer_roles,
+        organisation_id=organisation_id,
+        organisation_name=organisation_name,
     )
     return save_review_payload(storage, review)
 

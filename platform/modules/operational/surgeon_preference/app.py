@@ -17,6 +17,7 @@ from streamlit_services.access_control import (
     ACTIVE_STATUS,
     ADMIN_ROLE,
     AUTHENTICATED_ROLE,
+    DEFAULT_ORGANISATION_ID,
     EDITOR_ROLE,
     PENDING_ACCESS_STATUS,
     REVIEWER_ROLE,
@@ -444,6 +445,8 @@ def save_draft(payload: dict, submitter) -> str:
             "submitter_email": submitter.email,
             "submitter_roles": list(submitter.roles),
             "submitter_status": submitter.status,
+            "organisation_id": submitter.organisation_id,
+            "organisation_name": submitter.organisation_name,
         }
     )
     storage.put_text(key, json.dumps(payload, indent=2), "application/json")
@@ -619,6 +622,7 @@ def load_postgres_metadata() -> dict:
             """
             SELECT
                 review_id,
+                organisation_id,
                 draft_id,
                 decision,
                 reviewer_name,
@@ -638,6 +642,7 @@ def load_postgres_metadata() -> dict:
             """
             SELECT
                 event_type,
+                organisation_id,
                 actor_email,
                 actor_name,
                 actor_roles,
@@ -657,10 +662,40 @@ def load_postgres_metadata() -> dict:
                 display_name,
                 roles,
                 status,
+                default_organisation_id,
                 auth_provider,
                 last_seen_at,
                 updated_at
             FROM app_workflow.app_users
+            ORDER BY updated_at DESC
+            LIMIT 100
+            """,
+        )
+        metadata["organisations"] = _postgres_frame(
+            settings,
+            """
+            SELECT
+                organisation_id,
+                organisation_name,
+                status,
+                created_at,
+                updated_at
+            FROM app_workflow.organisations
+            ORDER BY updated_at DESC
+            LIMIT 100
+            """,
+        )
+        metadata["organisation_memberships"] = _postgres_frame(
+            settings,
+            """
+            SELECT
+                organisation_id,
+                user_email,
+                roles,
+                status,
+                created_at,
+                updated_at
+            FROM app_workflow.organisation_memberships
             ORDER BY updated_at DESC
             LIMIT 100
             """,
@@ -740,10 +775,20 @@ current_user, user_registry_warning = sync_user_with_registry(
     load_settings().postgres,
     detect_auth_provider(st.context.headers),
 )
+active_organisation_id = (
+    current_user.organisation_id if current_user else os.getenv("APP_ORGANISATION_ID", DEFAULT_ORGANISATION_ID)
+).strip() or DEFAULT_ORGANISATION_ID
+active_organisation_name = (
+    current_user.organisation_name
+    if current_user
+    else os.getenv("APP_ORGANISATION_NAME", "Surgeon Preference Demo")
+).strip() or "Surgeon Preference Demo"
 draft_submission_disabled_reason = submission_block_reason(current_user, ENABLE_DRAFT_SUBMISSIONS)
 
 if user_registry_warning:
     st.warning(user_registry_warning)
+
+st.caption(f"Workspace: {active_organisation_name} ({active_organisation_id})")
 
 
 def render_overview() -> None:
@@ -1090,7 +1135,11 @@ with review_tab:
         )
 
     storage = get_storage_client()
-    pending_drafts = load_pending_drafts(storage, DRAFT_PREFIX)
+    pending_drafts = load_pending_drafts(
+        storage,
+        DRAFT_PREFIX,
+        organisation_id=active_organisation_id,
+    )
     review_keys = storage.list_objects(REVIEW_DECISION_PREFIX)
 
     review_col_1, review_col_2 = st.columns(2)
@@ -1145,6 +1194,8 @@ with review_tab:
                     comments=comments,
                     reviewer_email=current_user.email if current_user else "",
                     reviewer_roles=current_user.roles if current_user else (),
+                    organisation_id=active_organisation_id,
+                    organisation_name=active_organisation_name,
                 )
                 review_key = save_review_payload(storage, review)
                 updated_draft = save_reviewed_draft(storage, selected_draft, review, review_key)
@@ -1188,7 +1239,11 @@ with publish_tab:
         )
 
     storage = get_storage_client()
-    publishable_drafts = load_publishable_drafts(storage, DRAFT_PREFIX)
+    publishable_drafts = load_publishable_drafts(
+        storage,
+        DRAFT_PREFIX,
+        organisation_id=active_organisation_id,
+    )
     publish_event_keys = storage.list_objects(PUBLISH_EVENT_PREFIX)
 
     publish_col_1, publish_col_2 = st.columns(2)
@@ -1265,6 +1320,8 @@ with publish_tab:
                         latest_gold_key=GOLD_OPERATIONAL_KEY,
                         row_count=len(published_gold),
                         published_at=published_at,
+                        organisation_id=active_organisation_id,
+                        organisation_name=active_organisation_name,
                     )
                     published_gold_key = save_published_gold(
                         storage=storage,
@@ -1415,7 +1472,7 @@ with metadata_tab:
     st.metric("Surgeons", current_df["surgeon_name"].nunique())
     st.metric("Procedures", current_df["procedure"].nunique() if "procedure" in current_df else 0)
     storage = get_storage_client()
-    draft_rows = load_drafts(storage, DRAFT_PREFIX)
+    draft_rows = load_drafts(storage, DRAFT_PREFIX, organisation_id=active_organisation_id)
     draft_keys = [draft["_object_key"] for draft in draft_rows]
     review_keys = storage.list_objects(REVIEW_DECISION_PREFIX)
     pending_count = sum(1 for draft in draft_rows if draft.get("status") == "pending_review")
@@ -1476,6 +1533,8 @@ with metadata_tab:
         ("Iceberg catalog", "iceberg"),
         ("Workflow reviews", "workflow_reviews"),
         ("Workflow audit events", "workflow_audit"),
+        ("Organisations", "organisations"),
+        ("Organisation memberships", "organisation_memberships"),
         ("App users", "app_users"),
     ]
     for label, key in postgres_sections:

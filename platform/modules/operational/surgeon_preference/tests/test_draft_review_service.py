@@ -62,6 +62,45 @@ def test_load_pending_drafts_returns_only_reviewable_json_objects():
     assert drafts[0]["_object_key"] == "gold/operational/drafts/003.json"
 
 
+def test_load_pending_drafts_can_filter_by_organisation():
+    storage = FakeStorage(
+        {
+            "gold/operational/drafts/001.json": json.dumps(
+                {**_draft(), "draft_id": "draft-a", "organisation_id": "hospital-a"}
+            ),
+            "gold/operational/drafts/002.json": json.dumps(
+                {**_draft(), "draft_id": "draft-b", "organisation_id": "hospital-b"}
+            ),
+        }
+    )
+
+    drafts = load_pending_drafts(
+        storage,
+        "gold/operational/drafts",
+        organisation_id="hospital-a",
+    )
+
+    assert [draft["draft_id"] for draft in drafts] == ["draft-a"]
+
+
+def test_load_pending_drafts_can_be_scoped_to_an_organisation():
+    storage = FakeStorage(
+        {
+            "gold/operational/drafts/default.json": json.dumps(_draft()),
+            "gold/operational/drafts/theatre-a.json": json.dumps(
+                {**_draft(), "draft_id": "draft-theatre-a", "organisation_id": "theatre-a"}
+            ),
+            "gold/operational/drafts/theatre-b.json": json.dumps(
+                {**_draft(), "draft_id": "draft-theatre-b", "organisation_id": "theatre-b"}
+            ),
+        }
+    )
+
+    drafts = load_pending_drafts(storage, "gold/operational/drafts", organisation_id="theatre-a")
+
+    assert [draft["draft_id"] for draft in drafts] == ["draft-theatre-a"]
+
+
 def test_draft_display_and_change_rows_are_human_readable():
     draft = _draft()
 
@@ -93,6 +132,8 @@ def test_build_review_decision_validates_reviewer_decision_and_status():
     assert decision["reviewer"] == "Theatre Coordinator"
     assert decision["reviewer_email"] == "reviewer@example.com"
     assert decision["reviewer_roles"] == ["reviewer"]
+    assert decision["organisation_id"] == "default"
+    assert decision["organisation_name"] == "Surgeon Preference Demo"
     assert decision["draft_object_key"] == "gold/operational/drafts/003.json"
 
     with pytest.raises(ValueError, match="Reviewer name is required"):

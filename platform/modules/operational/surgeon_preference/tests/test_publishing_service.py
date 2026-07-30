@@ -86,6 +86,48 @@ def test_load_publishable_drafts_only_returns_approved_pending_publish_items():
     assert drafts[0]["_object_key"] == "gold/operational/drafts/001.json"
 
 
+def test_load_publishable_drafts_can_filter_by_organisation():
+    storage = FakeStorage(
+        {
+            "gold/operational/drafts/001.json": json.dumps(
+                {**_approved_edit_draft(), "draft_id": "draft-a", "organisation_id": "hospital-a"}
+            ),
+            "gold/operational/drafts/002.json": json.dumps(
+                {**_approved_edit_draft(), "draft_id": "draft-b", "organisation_id": "hospital-b"}
+            ),
+        }
+    )
+
+    drafts = load_publishable_drafts(
+        storage,
+        "gold/operational/drafts",
+        organisation_id="hospital-b",
+    )
+
+    assert [draft["draft_id"] for draft in drafts] == ["draft-b"]
+
+
+def test_load_publishable_drafts_can_be_scoped_to_an_organisation():
+    storage = FakeStorage(
+        {
+            "gold/operational/drafts/theatre-a.json": json.dumps(
+                {**_approved_edit_draft(), "organisation_id": "theatre-a"}
+            ),
+            "gold/operational/drafts/theatre-b.json": json.dumps(
+                {
+                    **_approved_edit_draft(),
+                    "draft_id": "draft-theatre-b",
+                    "organisation_id": "theatre-b",
+                }
+            ),
+        }
+    )
+
+    drafts = load_publishable_drafts(storage, "gold/operational/drafts", organisation_id="theatre-b")
+
+    assert [draft["draft_id"] for draft in drafts] == ["draft-theatre-b"]
+
+
 def test_apply_approved_edit_draft_updates_matching_gold_row_and_bumps_version():
     published = apply_approved_draft_to_gold(
         current_gold=_gold_df(),
@@ -168,6 +210,8 @@ def test_publish_event_gold_outputs_and_draft_status_are_archived():
         published_at="2026-07-20T12:00:00+00:00",
     )
 
+    assert publish_event["organisation_id"] == "default"
+    assert publish_event["organisation_name"] == "Surgeon Preference Demo"
     published_key = save_published_gold(
         storage,
         _gold_df(),
