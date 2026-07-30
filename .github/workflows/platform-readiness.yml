@@ -1,0 +1,39 @@
+name: Platform readiness
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  cloud-readiness:
+    name: Cloud deployment preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install stock inventory dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest
+          python -m pip install -r platform/modules/operational/stock_inventory/requirements.txt
+
+      - name: Install surgeon preference dependencies
+        working-directory: platform/modules/operational/surgeon_preference
+        run: |
+          python -m pip install poetry
+          poetry config virtualenvs.create false
+          poetry install --no-interaction --no-ansi --no-root
+
+      - name: Run cloud deployment preflight
+        run: python scripts/cloud_deployment_preflight.py --include-tests

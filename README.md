@@ -257,6 +257,17 @@ Azure deployment: AZURE_STORAGE_CONNECTION_STRING is set, so Azure Blob is used.
 Pipelines share the same business logic but use different backends depending on
 the configured environment variables.
 
+### Cloud readiness gate
+
+Before a cloud-facing change is merged, run the platform preflight:
+
+```bash
+python3 scripts/cloud_deployment_preflight.py
+```
+
+See [Cloud Deployment Readiness](docs/cloud-deployment-readiness.md) for the
+CI gate, container validation checklist, and required runtime secrets.
+
 ---
 
 ## Repository structure
@@ -268,6 +279,7 @@ theatre-data-platform/
 │   ├── overview.md
 │   ├── architecture.md
 │   ├── modules.md
+│   ├── cloud-deployment-readiness.md
 │   ├── data-models.md
 │   └── roadmap.md
 ├── platform/
