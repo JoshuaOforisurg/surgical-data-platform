@@ -4,6 +4,8 @@ Production-oriented local pipeline for messy surgeon preference data.
 
 Live demo: [www.surgeonpreference.com](https://www.surgeonpreference.com)
 
+Public contact: `info@surgeonpreference.com` .
+
 ## Version 1 Status
 
 Version 1 of the Surgeon Preference pipeline is complete as a standalone
@@ -164,6 +166,47 @@ or DBeaver, connect to host `127.0.0.1` on port `5433` by default. The
 container still uses port `5432` internally, but the host port is shifted to
 avoid clashing with a native Postgres install on the laptop.
 
+## Web App Image Deployment
+
+Build and push web app images from the `platform/` directory so the Dockerfile
+can copy both the surgeon preference module and shared platform code:
+
+```bash
+cd /Users/joshuaofori/Desktop/surgical_data_platform/platform
+docker build \
+  -f modules/operational/surgeon_preference/Dockerfile \
+  -t acrsurgeonprefdevjo.azurecr.io/surgeon-preference:web-YYYYMMDD-description .
+
+docker push acrsurgeonprefdevjo.azurecr.io/surgeon-preference:web-YYYYMMDD-description
+```
+
+The latest V2 review-workflow image pushed to ACR is:
+
+```text
+acrsurgeonprefdevjo.azurecr.io/surgeon-preference:web-20260728-v2-review-workflow
+```
+
+If the local Azure CLI is unavailable, use the official Azure CLI container
+with the local Azure profile mounted:
+
+```bash
+docker run --rm -it \
+  -v "$HOME/.azure:/root/.azure" \
+  mcr.microsoft.com/azure-cli:latest \
+  az login --use-device-code
+
+docker run --rm \
+  -v "$HOME/.azure:/root/.azure" \
+  mcr.microsoft.com/azure-cli:latest \
+  az containerapp update \
+    --name ca-surgeon-preference-dev \
+    --resource-group rg-surgeon-preference-dev \
+    --image acrsurgeonprefdevjo.azurecr.io/surgeon-preference:web-20260728-v2-review-workflow
+```
+
+After Azure creates the new revision, confirm the live site loads through
+`https://www.surgeonpreference.com`.
+
 ## Storage Layout
 
 The same logical prefixes are used in local MinIO and Azure Blob Storage.
@@ -204,6 +247,11 @@ pipeline_audit.pipeline_runs
 metadata_catalog.object_store_objects
 metadata_catalog.gold_artifacts
 iceberg_catalog.catalog_bootstrap
+app_workflow.organisations
+app_workflow.organisation_memberships
+app_workflow.app_users
+app_workflow.draft_reviews
+app_workflow.audit_events
 ```
 
 Useful inspection queries:
@@ -221,7 +269,52 @@ order by layer, artifact_type;
 
 select *
 from iceberg_catalog.catalog_bootstrap;
+
+select reviewed_at, decision, reviewer_email, surgeon_name, procedure
+from app_workflow.draft_reviews
+order by reviewed_at desc
+limit 20;
+
+select user_email, display_name, roles, status, auth_provider, last_seen_at
+from app_workflow.app_users
+order by updated_at desc
+limit 50;
+
+select organisation_id, organisation_name, status, updated_at
+from app_workflow.organisations
+order by updated_at desc;
+
+select organisation_id, user_email, roles, status, updated_at
+from app_workflow.organisation_memberships
+order by updated_at desc;
 ```
+
+## Version 2 Product Foundation
+
+Version 2 starts the move from a single demo app toward a multi-user product.
+The first product backbone is workspace ownership:
+
+```text
+organisation
+    -> organisation memberships
+    -> app users
+    -> drafts
+    -> review decisions
+    -> publish events
+    -> audit events
+```
+
+The current deployment still defaults to one workspace:
+
+```text
+APP_ORGANISATION_ID=default
+APP_ORGANISATION_NAME="Surgeon Preference Demo"
+```
+
+When authenticated users are enabled, each user is synced into the Postgres
+registry and attached to the active organisation. Draft, review, publish, and
+audit payloads now carry `organisation_id`, so future hospitals or teams can be
+isolated without rewriting the workflow model.
 
 ## Iceberg Status
 
@@ -270,19 +363,97 @@ in smaller catalogue modules.
 
 ## Frontline Drafts
 
-Streamlit reads the current operational Gold file from object storage and
-allows staff to save draft edits or new draft preference cards. Drafts are
+Streamlit reads the current operational Gold file from object storage and lets
+authorised users save draft edits or new draft preference cards. Drafts are
 written under `gold/operational/drafts/` with `pending_review` status. They are
 not silently promoted over the operational Gold card.
+
+Authorised review decisions are archived under
+`gold/operational/draft_reviews/` and written into the Postgres
+`app_workflow` schema. Blob storage remains the immutable evidence archive;
+Postgres provides the searchable workflow ledger for reviewer identity, roles,
+decision, comments, and audit events.
+
+Once a reviewer records a decision, the draft object is overwritten with a
+closed lifecycle status so it no longer appears in the pending review queue:
+
+```text
+approved -> approved_pending_publish
+needs_changes -> changes_requested
+rejected -> rejected
+```
+
+Approved drafts are not automatically promoted into the published Gold card.
+That publishing step remains deliberately separate so Version 2 can add a
+second controlled action for promotion, rollback, and version comparison.
 
 For a public demo, draft submissions are disabled by default:
 
 ```bash
 ENABLE_DRAFT_SUBMISSIONS=false
+ENABLE_DRAFT_REVIEWS=false
+ENABLE_DRAFT_PUBLISHING=false
 ```
 
 Set `ENABLE_DRAFT_SUBMISSIONS=true` only in a controlled environment with
-authentication, review controls, and abuse protection.
+authentication, review controls, and abuse protection. A user also needs one
+of these roles before the app will allow draft submission:
+
+```text
+editor
+reviewer
+admin
+```
+
+The `app_workflow.app_users` table gives the app its first invite-only product
+foundation. New authenticated users can be recorded as `pending_access`, while
+approved users should be set to `active`. Suspended users remain visible in the
+registry but cannot submit, review, or publish:
+
+```sql
+update app_workflow.app_users
+set status = 'active',
+    roles = array['authenticated', 'editor'],
+    updated_at = current_timestamp
+where user_email = 'person@example.com';
+
+update app_workflow.app_users
+set status = 'suspended',
+    updated_at = current_timestamp
+where user_email = 'person@example.com';
+```
+
+For local development only, allowlists can simulate roles:
+
+```bash
+APP_CURRENT_USER_EMAIL=editor@example.com
+APP_CURRENT_USER_NAME="Local Editor"
+APP_EDITOR_ALLOWLIST=editor@example.com
+APP_REVIEWER_ALLOWLIST=reviewer@example.com
+APP_ADMIN_ALLOWLIST=admin@example.com
+```
+
+## Product Authentication Direction
+
+Version 2 should use platform-managed authentication rather than storing
+passwords in this Streamlit app. In Azure, the intended pattern is:
+
+```text
+User sign-in
+    -> Azure Container Apps authentication / Microsoft Entra ID
+    -> verified identity headers
+    -> app_workflow.app_users status and role lookup
+    -> Streamlit role checks
+    -> review or publish action
+    -> Postgres workflow audit
+```
+
+Local development can still simulate an authenticated user with
+`APP_CURRENT_USER_EMAIL`, `APP_REVIEWER_ALLOWLIST`, and
+`APP_ADMIN_ALLOWLIST`. In Azure, the app can read the verified
+`x-ms-client-principal` headers and then apply the same allowlist/role checks.
+Reviewer and publisher permissions stay separate: reviewers can approve or
+reject drafts, while only admins can publish approved drafts into Gold.
 
 ## Azure And FHIR Learning Plan
 
