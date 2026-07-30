@@ -140,6 +140,8 @@ def test_sync_user_registers_seen_identity_and_returns_registry_roles():
         "roles": ["authenticated"],
         "status": "pending_access",
         "auth_provider": "azure_container_apps",
+        "organisation_id": "default",
+        "organisation_name": "Surgeon Preference Demo",
     }
     assert synced.display_name == "Approved Editor"
     assert synced.roles == ("authenticated", "editor")
@@ -174,6 +176,8 @@ def test_update_user_access_writes_admin_change_request():
         "actor_email": "admin@example.com",
         "actor_name": "Admin",
         "actor_roles": ["admin", "authenticated"],
+        "organisation_id": "default",
+        "organisation_name": "Surgeon Preference Demo",
     }
     assert updated == {
         "user_email": "Person@Example.Com",

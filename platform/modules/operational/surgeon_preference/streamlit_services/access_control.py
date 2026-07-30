@@ -11,6 +11,7 @@ AUTHENTICATED_ROLE = "authenticated"
 ACTIVE_STATUS = "active"
 PENDING_ACCESS_STATUS = "pending_access"
 SUSPENDED_STATUS = "suspended"
+DEFAULT_ORGANISATION_ID = "default"
 EMAIL_CLAIM_TYPES = {
     "email",
     "emails",
@@ -35,6 +36,8 @@ class AppUser:
     display_name: str
     roles: tuple[str, ...]
     status: str = ACTIVE_STATUS
+    organisation_id: str = DEFAULT_ORGANISATION_ID
+    organisation_name: str = "Surgeon Preference Demo"
 
     @property
     def is_active(self) -> bool:
@@ -142,7 +145,15 @@ def load_user_from_env(env: Mapping[str, str]) -> AppUser | None:
         or email
     ).strip()
 
-    return AppUser(email=email, display_name=display_name, roles=_roles_for_email(email, env))
+    return AppUser(
+        email=email,
+        display_name=display_name,
+        roles=_roles_for_email(email, env),
+        organisation_id=(env.get("APP_ORGANISATION_ID") or DEFAULT_ORGANISATION_ID).strip()
+        or DEFAULT_ORGANISATION_ID,
+        organisation_name=(env.get("APP_ORGANISATION_NAME") or "Surgeon Preference Demo").strip()
+        or "Surgeon Preference Demo",
+    )
 
 
 def load_user_from_headers(headers: Mapping[str, str], env: Mapping[str, str]) -> AppUser | None:
@@ -166,6 +177,10 @@ def load_user_from_headers(headers: Mapping[str, str], env: Mapping[str, str]) -
         email=email,
         display_name=str(display_name).strip() or email,
         roles=_roles_for_email(email, env, identity_roles),
+        organisation_id=(env.get("APP_ORGANISATION_ID") or DEFAULT_ORGANISATION_ID).strip()
+        or DEFAULT_ORGANISATION_ID,
+        organisation_name=(env.get("APP_ORGANISATION_NAME") or "Surgeon Preference Demo").strip()
+        or "Surgeon Preference Demo",
     )
 
 

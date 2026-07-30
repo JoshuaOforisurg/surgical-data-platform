@@ -49,12 +49,16 @@ def test_reviewer_allowlist_grants_review_permission():
             "APP_CURRENT_USER_EMAIL": "Reviewer@Example.Com",
             "APP_CURRENT_USER_NAME": "Theatre Reviewer",
             "APP_REVIEWER_ALLOWLIST": "reviewer@example.com",
+            "APP_ORGANISATION_ID": "hospital-a",
+            "APP_ORGANISATION_NAME": "Hospital A",
         }
     )
 
     assert user is not None
     assert user.email == "reviewer@example.com"
     assert user.display_name == "Theatre Reviewer"
+    assert user.organisation_id == "hospital-a"
+    assert user.organisation_name == "Hospital A"
     assert user.can_review_preferences is True
     assert review_block_reason(user, review_feature_enabled=True) is None
 

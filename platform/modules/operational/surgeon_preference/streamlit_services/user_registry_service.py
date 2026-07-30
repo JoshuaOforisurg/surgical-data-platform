@@ -8,6 +8,7 @@ from streamlit_services.access_control import (
     ACTIVE_STATUS,
     ADMIN_ROLE,
     AppUser,
+    DEFAULT_ORGANISATION_ID,
     EDITOR_ROLE,
     PENDING_ACCESS_STATUS,
     REVIEWER_ROLE,
@@ -30,6 +31,8 @@ def merge_registry_user(identity_user: AppUser, registry_row: dict[str, Any] | N
             display_name=identity_user.display_name,
             roles=identity_user.roles,
             status=initial_registry_status(identity_user),
+            organisation_id=identity_user.organisation_id,
+            organisation_name=identity_user.organisation_name,
         )
 
     registry_roles = {
@@ -41,12 +44,24 @@ def merge_registry_user(identity_user: AppUser, registry_row: dict[str, Any] | N
     roles = tuple(sorted(registry_roles | identity_roles))
     status = str(registry_row.get("status") or initial_registry_status(identity_user)).strip().lower()
     display_name = str(registry_row.get("display_name") or identity_user.display_name).strip()
+    organisation_id = str(
+        registry_row.get("organisation_id")
+        or identity_user.organisation_id
+        or DEFAULT_ORGANISATION_ID
+    ).strip()
+    organisation_name = str(
+        registry_row.get("organisation_name")
+        or identity_user.organisation_name
+        or "Surgeon Preference Demo"
+    ).strip()
 
     return AppUser(
         email=identity_user.email,
         display_name=display_name or identity_user.email,
         roles=roles,
         status=status,
+        organisation_id=organisation_id or DEFAULT_ORGANISATION_ID,
+        organisation_name=organisation_name or "Surgeon Preference Demo",
     )
 
 
@@ -70,6 +85,8 @@ def sync_user_with_registry(
             roles=list(user.roles),
             status=initial_registry_status(user),
             auth_provider=auth_provider,
+            organisation_id=user.organisation_id,
+            organisation_name=user.organisation_name,
         )
     except Exception as exc:
         return user, f"Postgres user registry could not be reached; using identity roles only: {exc}"
@@ -100,6 +117,8 @@ def update_user_access(
             actor_email=actor.email,
             actor_name=actor.display_name,
             actor_roles=list(actor.roles),
+            organisation_id=actor.organisation_id,
+            organisation_name=actor.organisation_name,
         )
     except ValueError as exc:
         return None, str(exc)
