@@ -63,6 +63,10 @@ def _relative(path: Path) -> str:
         return str(path)
 
 
+def _check_name_path(path: Path) -> str:
+    return _relative(path).lstrip(".")
+
+
 def _python_files(paths: Iterable[Path]) -> list[Path]:
     files: list[Path] = []
     for root in paths:
@@ -92,7 +96,7 @@ def check_required_files() -> list[CheckResult]:
         exists = path.is_file()
         results.append(
             CheckResult(
-                name=f"required_file.{_relative(path)}",
+                name=f"required_file.{_check_name_path(path)}",
                 status="passed" if exists else "failed",
                 severity="error",
                 message=f"{_relative(path)} exists." if exists else f"{_relative(path)} is missing.",
@@ -180,6 +184,14 @@ def run_command(
             message=output or "Command completed successfully.",
             command=command_label,
         )
+    if completed.returncode == 124:
+        return CheckResult(
+            name=name,
+            status="failed",
+            severity=severity,
+            message=output or "Command hit its timeout wrapper before completing.",
+            command=command_label,
+        )
     return CheckResult(
         name=name,
         status="failed",
@@ -187,6 +199,13 @@ def run_command(
         message=output or f"Command exited with {completed.returncode}.",
         command=command_label,
     )
+
+
+def timeout_wrapped_command(command: list[str], timeout_seconds: int) -> list[str]:
+    timeout_tool = shutil.which("gtimeout") or shutil.which("timeout")
+    if not timeout_tool:
+        return command
+    return [timeout_tool, str(timeout_seconds), *command]
 
 
 def check_compose_files(timeout_seconds: int, skip_docker: bool) -> list[CheckResult]:
@@ -217,19 +236,21 @@ def check_compose_files(timeout_seconds: int, skip_docker: bool) -> list[CheckRe
         "MINIO_ROOT_USER": "surgeon_preference_minio",
         "MINIO_ROOT_PASSWORD": "local-preflight-password",
     }
+    compose_timeout = min(timeout_seconds, 45)
+    compose_command = timeout_wrapped_command(["docker", "compose", "config", "--quiet"], compose_timeout)
     return [
         run_command(
             "docker.stock_compose_config",
-            ["docker", "compose", "config", "--quiet"],
+            compose_command,
             STOCK_ROOT,
-            timeout_seconds=timeout_seconds,
+            timeout_seconds=compose_timeout + 5,
         ),
         run_command(
             "docker.surgeon_compose_config",
-            ["docker", "compose", "config", "--quiet"],
+            compose_command,
             SURGEON_ROOT,
             env=surgeon_env,
-            timeout_seconds=timeout_seconds,
+            timeout_seconds=compose_timeout + 5,
         ),
     ]
 
