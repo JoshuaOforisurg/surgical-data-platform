@@ -247,6 +247,8 @@ pipeline_audit.pipeline_runs
 metadata_catalog.object_store_objects
 metadata_catalog.gold_artifacts
 iceberg_catalog.catalog_bootstrap
+app_workflow.organisations
+app_workflow.organisation_memberships
 app_workflow.app_users
 app_workflow.draft_reviews
 app_workflow.audit_events
@@ -277,7 +279,42 @@ select user_email, display_name, roles, status, auth_provider, last_seen_at
 from app_workflow.app_users
 order by updated_at desc
 limit 50;
+
+select organisation_id, organisation_name, status, updated_at
+from app_workflow.organisations
+order by updated_at desc;
+
+select organisation_id, user_email, roles, status, updated_at
+from app_workflow.organisation_memberships
+order by updated_at desc;
 ```
+
+## Version 2 Product Foundation
+
+Version 2 starts the move from a single demo app toward a multi-user product.
+The first product backbone is workspace ownership:
+
+```text
+organisation
+    -> organisation memberships
+    -> app users
+    -> drafts
+    -> review decisions
+    -> publish events
+    -> audit events
+```
+
+The current deployment still defaults to one workspace:
+
+```text
+APP_ORGANISATION_ID=default
+APP_ORGANISATION_NAME="Surgeon Preference Demo"
+```
+
+When authenticated users are enabled, each user is synced into the Postgres
+registry and attached to the active organisation. Draft, review, publish, and
+audit payloads now carry `organisation_id`, so future hospitals or teams can be
+isolated without rewriting the workflow model.
 
 ## Iceberg Status
 
