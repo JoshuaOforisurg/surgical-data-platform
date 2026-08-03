@@ -180,10 +180,10 @@ docker build \
 docker push acrsurgeonprefdevjo.azurecr.io/surgeon-preference:web-YYYYMMDD-description
 ```
 
-The latest V2 organisation/workspace foundation image pushed to ACR is:
+The latest V2 cloud-ready image pushed to ACR is:
 
 ```text
-acrsurgeonprefdevjo.azurecr.io/surgeon-preference:web-20260730-v2-org-foundation-4e59397
+acrsurgeonprefdevjo.azurecr.io/surgeon-preference:web-20260803-v2-cloud-ready-0b54457
 ```
 
 If the local Azure CLI is unavailable, use the official Azure CLI container
@@ -201,7 +201,7 @@ docker run --rm \
   az containerapp update \
     --name ca-surgeon-preference-dev \
     --resource-group rg-surgeon-preference-dev \
-    --image acrsurgeonprefdevjo.azurecr.io/surgeon-preference:web-20260730-v2-org-foundation-4e59397
+    --image acrsurgeonprefdevjo.azurecr.io/surgeon-preference:web-20260803-v2-cloud-ready-0b54457
 ```
 
 After Azure creates the new revision, confirm the live site loads through
