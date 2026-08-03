@@ -305,6 +305,7 @@ def check_tests(timeout_seconds: int, include_tests: bool) -> list[CheckResult]:
     ]
     surgeon_tests = [
         "tests/test_access_control.py",
+        "tests/test_auth_links.py",
         "tests/test_draft_review_service.py",
         "tests/test_publishing_service.py",
         "tests/test_user_registry_service.py",

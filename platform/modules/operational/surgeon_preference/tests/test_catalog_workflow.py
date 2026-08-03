@@ -26,6 +26,21 @@ def test_user_registry_methods_are_noops_when_postgres_disabled():
         auth_provider="local_env",
     ) is None
     assert repository.list_app_users() == []
+    assert repository.list_access_requests() == []
+    assert repository.create_access_request(
+        user_email="editor@example.com",
+        display_name="Editor",
+        requested_roles=["authenticated", "editor"],
+        requested_organisation_name="Demo Hospital",
+        reason="I prepare preference cards.",
+    ) is None
+    assert repository.resolve_access_request(
+        access_request_id="00000000-0000-0000-0000-000000000001",
+        decision="approved",
+        actor_email="admin@example.com",
+        actor_name="Admin",
+        actor_roles=["admin"],
+    ) is None
 
     repository.record_draft_submission(
         {

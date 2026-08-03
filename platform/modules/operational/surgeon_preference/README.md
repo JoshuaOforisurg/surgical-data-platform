@@ -37,6 +37,19 @@ module further. The next data product is stock/inventory management, which can
 combine with the surgeon preference pipeline to support theatre analytics such
 as readiness, shortage detection, substitutions, and reorder planning.
 
+## Version 2 Direction
+
+Version 2 is turning the Streamlit surface from a public demo into a controlled
+product workflow. The app now has the foundation for Azure-backed sign-in,
+access requests, administrator approval, draft submission, review, publishing,
+and Postgres audit history.
+
+Real user access is documented in
+[`docs/real_user_access_model.md`](docs/real_user_access_model.md). The product
+boundary is deliberate: public users can view synthetic demo data, but only
+authenticated and approved users should be allowed to create, review, or publish
+preference-card changes.
+
 ## Current Architecture
 
 ```text

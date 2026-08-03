@@ -29,6 +29,7 @@ from streamlit_services.access_control import (
     user_management_block_reason,
 )
 from streamlit_renderers.preference_card import build_preference_card, current_preference_rows
+from streamlit_services.auth_links import build_login_links, build_logout_link
 from streamlit_services.draft_review_service import (
     REVIEW_DECISION_PREFIX,
     build_review_decision,
@@ -49,13 +50,26 @@ from streamlit_services.publishing_service import (
     save_published_gold,
 )
 from streamlit_services.streamlit_service import get_storage_client
-from streamlit_services.user_registry_service import sync_user_with_registry, update_user_access
+from streamlit_services.user_registry_service import (
+    list_access_requests,
+    resolve_access_request,
+    submit_access_request,
+    sync_user_with_registry,
+    update_user_access,
+)
 
 
 GOLD_OPERATIONAL_KEY = "gold/operational/latest/gold_operational_preference_cards.csv"
 DRAFT_PREFIX = "gold/operational/drafts"
 GITHUB_PROFILE_URL = os.getenv("APP_GITHUB_PROFILE_URL", "https://github.com/JoshuaOforisurg")
 CONTACT_EMAIL = os.getenv("APP_CONTACT_EMAIL", "info@surgeonpreference.com").strip()
+AUTH_PROVIDER_CONFIG = os.getenv("APP_AUTH_PROVIDERS", "aad")
+SHOW_AUTH_LINKS = os.getenv("APP_SHOW_AUTH_LINKS", "true").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
 ENABLE_DRAFT_SUBMISSIONS = os.getenv("ENABLE_DRAFT_SUBMISSIONS", "false").strip().lower() in {
     "1",
     "true",
@@ -374,6 +388,43 @@ def inject_theme() -> None:
         height: 1rem;
         width: 1rem;
     }
+
+    .sp-account-bar {
+        align-items: center;
+        background: var(--sp-white);
+        border: 1px solid #c8dff3;
+        color: var(--sp-muted);
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.75rem;
+        justify-content: space-between;
+        line-height: 1.45;
+        margin: 0.65rem 0 1rem;
+        padding: 0.75rem 0.9rem;
+    }
+
+    .sp-account-bar strong {
+        color: var(--sp-dark-blue);
+    }
+
+    .sp-auth-actions {
+        align-items: center;
+        display: inline-flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+    }
+
+    .sp-auth-link {
+        background: var(--sp-blue);
+        color: var(--sp-white) !important;
+        font-weight: 800;
+        padding: 0.42rem 0.7rem;
+        text-decoration: none !important;
+    }
+
+    .sp-auth-link:hover {
+        background: var(--sp-dark-blue);
+    }
 </style>
         """,
         unsafe_allow_html=True,
@@ -412,6 +463,34 @@ def render_project_footer() -> None:
         """,
         unsafe_allow_html=True,
     )
+
+
+def render_account_bar(user, message: str | None = None) -> None:
+    if not SHOW_AUTH_LINKS:
+        return
+
+    if user:
+        roles = ", ".join(user.roles) if user.roles else "viewer"
+        logout_href = build_logout_link("/")
+        content = (
+            f"<span><strong>Signed in:</strong> {escape(user.display_name)} "
+            f"({escape(user.email)}) - roles: {escape(roles)} - status: {escape(user.status)}</span>"
+            f'<span class="sp-auth-actions"><a class="sp-auth-link" href="{escape(logout_href)}" '
+            'target="_self">Sign out</a></span>'
+        )
+    else:
+        login_links = build_login_links(AUTH_PROVIDER_CONFIG, "/")
+        actions = "".join(
+            f'<a class="sp-auth-link" href="{escape(link["href"])}" target="_self">'
+            f'Sign in with {escape(link["label"])}</a>'
+            for link in login_links
+        )
+        content = (
+            f"<span>{escape(message or 'Viewing public demo data. Sign in to request access.')}</span>"
+            f'<span class="sp-auth-actions">{actions}</span>'
+        )
+
+    st.markdown(f'<div class="sp-account-bar">{content}</div>', unsafe_allow_html=True)
 
 # ----------------------------
 # LOAD OPERATIONAL GOLD DATA (SAFE)
@@ -700,6 +779,27 @@ def load_postgres_metadata() -> dict:
             LIMIT 100
             """,
         )
+        metadata["access_requests"] = _postgres_frame(
+            settings,
+            """
+            SELECT
+                access_request_id,
+                organisation_id,
+                user_email,
+                display_name,
+                requested_roles,
+                requested_organisation_name,
+                reason,
+                status,
+                reviewed_by_email,
+                reviewed_at,
+                created_at,
+                updated_at
+            FROM app_workflow.access_requests
+            ORDER BY created_at DESC
+            LIMIT 100
+            """,
+        )
 
     return metadata
 
@@ -789,6 +889,7 @@ if user_registry_warning:
     st.warning(user_registry_warning)
 
 st.caption(f"Workspace: {active_organisation_name} ({active_organisation_id})")
+render_account_bar(current_user)
 
 
 def render_overview() -> None:
@@ -1369,6 +1470,7 @@ with access_tab:
     )
 
     access_disabled_reason = user_management_block_reason(current_user)
+    postgres_settings = load_settings().postgres
     if current_user:
         st.caption(
             f"Signed in as {current_user.display_name} ({current_user.email}); "
@@ -1376,13 +1478,121 @@ with access_tab:
             f"status: {current_user.status}"
         )
 
+    st.markdown("#### Request access")
+    if current_user is None:
+        st.info("Sign in before requesting access to create, review, or publish preference cards.")
+        render_account_bar(
+            None,
+            "Use the secure Azure sign-in flow first. After sign-in, you can request access for your organisation.",
+        )
+    elif current_user.can_manage_users:
+        st.info("You are already an administrator for this workspace.")
+    else:
+        with st.form("access_request_form"):
+            requested_organisation = st.text_input(
+                "Organisation or hospital",
+                value=active_organisation_name,
+            )
+            requested_roles = st.multiselect(
+                "Requested access",
+                [EDITOR_ROLE, REVIEWER_ROLE, ADMIN_ROLE],
+                default=[EDITOR_ROLE],
+                help="Ask only for the minimum access you need.",
+            )
+            request_reason = st.text_area(
+                "Reason",
+                placeholder="Example: I help maintain orthopaedic preference cards for theatre preparation.",
+            )
+            request_submitted = st.form_submit_button(
+                "Submit Access Request",
+                disabled=postgres_settings is None,
+            )
+
+        if postgres_settings is None:
+            st.info("Access requests need Postgres to be configured.")
+        elif request_submitted:
+            access_request, error_message = submit_access_request(
+                settings=postgres_settings,
+                user=current_user,
+                requested_roles=requested_roles,
+                requested_organisation_name=requested_organisation,
+                reason=request_reason,
+            )
+            if error_message:
+                st.error(error_message)
+            else:
+                load_postgres_metadata.clear()
+                st.success(
+                    "Access request submitted for admin review. You will remain pending "
+                    "until an administrator approves the request."
+                )
+                st.caption(f"Request ID: {access_request['access_request_id']}")
+
+    st.markdown("#### Admin controls")
     if access_disabled_reason:
         st.info(f"{access_disabled_reason} Existing users can still be viewed in Metadata.")
     else:
-        postgres_settings = load_settings().postgres
         if not postgres_settings:
             st.warning("Postgres user registry is not configured for this deployment.")
         else:
+            pending_requests, pending_error = list_access_requests(
+                postgres_settings,
+                organisation_id=active_organisation_id,
+                status="pending_review",
+            )
+            if pending_error:
+                st.warning(pending_error)
+            elif pending_requests:
+                st.markdown("##### Pending access requests")
+                pending_df = pd.DataFrame(pending_requests)
+                st.dataframe(
+                    pending_df[
+                        [
+                            "access_request_id",
+                            "user_email",
+                            "display_name",
+                            "requested_roles",
+                            "requested_organisation_name",
+                            "reason",
+                            "created_at",
+                        ]
+                    ],
+                    width="stretch",
+                    hide_index=True,
+                )
+
+                request_options = {
+                    f"{request['user_email']} - {request['access_request_id']}": request
+                    for request in pending_requests
+                }
+                with st.form("resolve_access_request_form"):
+                    selected_request_label = st.selectbox(
+                        "Access request",
+                        list(request_options),
+                        key="resolve_access_request",
+                    )
+                    access_decision = st.selectbox("Decision", ["approved", "rejected"])
+                    resolve_submitted = st.form_submit_button("Record Access Decision")
+
+                if resolve_submitted:
+                    selected_request = request_options[selected_request_label]
+                    resolved_request, error_message = resolve_access_request(
+                        settings=postgres_settings,
+                        access_request_id=str(selected_request["access_request_id"]),
+                        decision=access_decision,
+                        actor=current_user,
+                    )
+                    if error_message:
+                        st.error(error_message)
+                    else:
+                        load_postgres_metadata.clear()
+                        st.success(
+                            f"Access request {resolved_request['access_request_id']} marked "
+                            f"{resolved_request['status']}."
+                        )
+            else:
+                st.info("No pending access requests for this workspace.")
+
             postgres_metadata = load_postgres_metadata()
             app_users_df = postgres_metadata.get("app_users", pd.DataFrame())
             if app_users_df.empty:
@@ -1535,6 +1745,7 @@ with metadata_tab:
         ("Workflow audit events", "workflow_audit"),
         ("Organisations", "organisations"),
         ("Organisation memberships", "organisation_memberships"),
+        ("Access requests", "access_requests"),
         ("App users", "app_users"),
     ]
     for label, key in postgres_sections:
