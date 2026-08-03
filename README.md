@@ -11,6 +11,13 @@ The first completed module is the **Surgeon Preference Pipeline**, a version 1
 operational data product that processes synthetic surgeon preference data
 through landing, bronze, silver, and gold layers, publishes preference-card
 outputs, and serves them through a Dockerized Streamlit app running on Azure.
+Version 2 work is now focused on turning the demo surface into a controlled
+product workflow with authentication, access requests, draft review, publishing,
+and auditability.
+
+The second active module is the **Stock & Inventory Management Pipeline**,
+which is being built to connect preference-card demand with stock availability,
+substitution options, reorder planning, and theatre readiness analytics.
 
 Live demo: [www.surgeonpreference.com](https://www.surgeonpreference.com)
 
@@ -47,34 +54,114 @@ The platform is intentionally built from a clinical operations perspective:
 
 ---
 
-## Current module status
+## Platform At A Glance
 
-### Completed Version 1 modules
+```mermaid
+flowchart LR
+    Users["Theatre teams, analysts, and approved app users"]
+    Web["Product surfaces\nStreamlit now, richer web app later"]
+    Auth["Identity and access\nAzure auth + Postgres roles"]
+    Storage["Object storage\nMinIO locally, Azure Blob in cloud"]
+    Metadata["Postgres metadata\ncatalogue, audit, users, workflow"]
+    Orchestration["Orchestration\nlocal CLI, Docker, ADF, Container App Jobs"]
+    Modules["Operational data products"]
 
-- **Surgeon Preference Pipeline**
-  Version 1 is complete as a standalone operational data product. It now runs
-  locally and in Azure, with a Dockerized Streamlit frontend, a dedicated
-  Container App Job for scheduled/manual batch execution, Azure Blob Storage
-  outputs, Azure Postgres metadata and audit tables, Azure Data Factory
-  orchestration, and a secured custom domain.
+    Users --> Web
+    Web --> Auth
+    Web --> Storage
+    Web --> Metadata
+    Orchestration --> Modules
+    Modules --> Storage
+    Modules --> Metadata
+```
 
-  Current ingestion mode: scheduled/manual synthetic batch ingestion. The Azure
-  job generates 1000 clinically aligned source files, processes them through
-  landing, bronze, silver, and gold layers, and publishes the latest operational
-  preference cards for review.
+## Surgeon Preference Pipeline Flow
 
-### Next planned module
+```mermaid
+flowchart TD
+    Sources["Synthetic or EHR-style source messages"]
+    Landing["Landing\nraw source files"]
+    Bronze["Bronze\nraw ledger and manifests"]
+    SilverA["Silver A\nstructural cleanup"]
+    SilverB["Silver B\nclinical enrichment and validation"]
+    Gold["Gold\noperational preference cards"]
+    App["Surgeon Preference app\nview, draft, review, publish"]
+    Audit["Postgres audit and metadata"]
 
-- **Stock & Inventory Management Pipeline**
-  This is the recommended next pipeline because it connects naturally to surgeon
-  preferences. Surgeon preference cards describe expected procedure demand;
-  inventory data will show actual consumable, implant, and tray availability.
-  Together, both modules can support shortage detection, substitution review,
-  reorder planning, and theatre readiness workflows.
+    Sources --> Landing --> Bronze --> SilverA --> SilverB --> Gold --> App
+    Bronze --> Audit
+    SilverB --> Audit
+    App --> Audit
+```
+
+## Cross-Pipeline Direction
+
+```mermaid
+flowchart LR
+    SurgeonGold["Surgeon Preference Gold\nprocedure demand and preference cards"]
+    StockPipeline["Stock & Inventory Pipeline\nlots, locations, ERP balances, substitutions"]
+    StockGold["Stock Gold\nreadiness, shortages, reorder, cost signals"]
+    Readiness["Theatre readiness layer\ncase readiness and exception worklists"]
+    FutureApps["Future platform apps\noperations, analytics, AI-ready data products"]
+
+    SurgeonGold --> StockPipeline
+    StockPipeline --> StockGold
+    SurgeonGold --> Readiness
+    StockGold --> Readiness
+    Readiness --> FutureApps
+```
 
 ---
 
-## Completed Surgeon Preference Pipeline V1
+## Current Module Status
+
+### Surgeon Preference Pipeline
+
+**Version 1 complete. Version 2 in progress.**
+
+Version 1 is complete as a standalone operational data product. It now runs
+locally and in Azure, with a Dockerized Streamlit frontend, a dedicated
+Container App Job for scheduled/manual batch execution, Azure Blob Storage
+outputs, Azure Postgres metadata and audit tables, Azure Data Factory
+orchestration, and a secured custom domain.
+
+Current ingestion mode: scheduled/manual synthetic batch ingestion. The Azure
+job generates 1000 clinically aligned source files, processes them through
+landing, bronze, silver, and gold layers, and publishes the latest operational
+preference cards for review.
+
+Version 2 is adding the first product workflow layer:
+
+- Azure-ready sign-in links for real users
+- Postgres-backed user registry and organisation membership
+- access request submission and admin approval
+- role-based draft creation, review, publishing, and user management
+- auditable workflow tables for access, reviews, publishes, and role changes
+
+### Stock & Inventory Management Pipeline
+
+**Active build.**
+
+This is the next operational pipeline because it connects naturally to surgeon
+preferences. Surgeon preference cards describe expected procedure demand;
+inventory data shows actual consumable, implant, tray, supplier, lot, expiry,
+reorder, and substitution availability. Together, both modules can support
+shortage detection, substitution review, reorder planning, and theatre readiness
+workflows.
+
+The stock module currently includes:
+
+- clinically aligned synthetic stock source generation
+- realistic messy CSV and cleaner JSON/JSONL source files
+- bronze ingestion with raw-file and record ledgers
+- silver normalisation and enrichment
+- gold readiness, shortage, reorder, risk, usage, surgeon, and procedure outputs
+- a local Streamlit dashboard snapshot service
+- quality gates and cloud-readiness preflight scaffolding
+
+---
+
+## Surgeon Preference Pipeline
 
 The Surgeon Preference module currently demonstrates:
 
@@ -91,11 +178,31 @@ The Surgeon Preference module currently demonstrates:
 - Azure Blob Storage, Azure PostgreSQL, Azure Container Registry, Azure
   Container Apps, and Azure Data Factory orchestration learning path
 - custom-domain deployment and revision/image troubleshooting
+- version 2 access request workflow for real-user onboarding
+- role-aware draft, review, publish, and administrator controls
 
-Current ingestion mode is scheduled/manual synthetic batch ingestion. The next
-engineering milestone is to connect the Surgeon Preference output to a Stock &
-Inventory Management pipeline so preference-card demand can be compared against
-stock, implant, tray, and supplier availability.
+Current ingestion mode is scheduled/manual synthetic batch ingestion. The active
+engineering milestone is to harden real-user access on Azure, then connect the
+Surgeon Preference output to the Stock & Inventory Management pipeline so
+preference-card demand can be compared against stock, implant, tray, and
+supplier availability.
+
+## Stock & Inventory Pipeline
+
+The Stock & Inventory module is designed as the operational sibling to Surgeon
+Preference. It models the data needed to answer practical theatre questions:
+
+- Is the required stock available for upcoming cases?
+- Are any lots expired, quarantined, recalled, or awaiting sterilisation?
+- Is there a clinically acceptable substitution?
+- Which items need reorder action?
+- Which surgeons, procedures, or specialties are most exposed to shortage risk?
+- How do stock movements translate into issue, waste, return, and cost signals?
+
+The first version remains local-first while the pipeline behaviour is being
+hardened. Cloud deployment should follow the same pattern proven by Surgeon
+Preference: containerized workloads, object storage, Postgres metadata, CI
+checks, Azure runtime secrets, and clear preflight validation.
 
 ---
 
@@ -312,14 +419,16 @@ All modules follow the same lifecycle:
 
 ## Roadmap
 
-- Generate synthetic data and utilise data from public data sources  
-- Transform data to ensure schema validation  
-- Add FHIR/HL7 integration (where needed)  
-- Add orchestration  
-- Add dashboards  
-- Add ML models  
-- Add CI/CD  
-- Add full Azure IaC and deployment scripts  
+- Finish Surgeon Preference V2 access hardening on Azure
+- Build Stock & Inventory into a full medallion pipeline and dashboard
+- Connect Surgeon Preference demand to Stock & Inventory readiness outputs
+- Add cloud deployment gates for each new module
+- Add monitoring, restore checks, and operational runbooks
+- Add FHIR/HL7 integration where real hospital-style workflows need it
+- Add Infrastructure-as-Code for repeatable dev/test/prod environments
+- Add intelligence modules only after operational data contracts are stable
+- Keep patient-identifiable data out of the platform until governance,
+  tenancy, data protection, and clinical safety controls are mature
 
 ---
 
