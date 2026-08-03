@@ -17,13 +17,15 @@ COPY modules/operational/surgeon_preference/pyproject.toml \
     modules/operational/surgeon_preference/poetry.lock ./
 
 RUN poetry config virtualenvs.create false \
-    && poetry lock \
-    && poetry install --no-interaction --no-ansi
+    && poetry install --no-interaction --no-ansi --no-root
 
 
 COPY modules/operational/surgeon_preference/ ./
 COPY shared/ ./shared/
 
 EXPOSE 8501
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8501/_stcore/health', timeout=3)"
 
 CMD ["streamlit", "run", "app.py", "--server.address=0.0.0.0", "--server.port=8501"]
