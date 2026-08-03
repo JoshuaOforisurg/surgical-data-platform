@@ -301,8 +301,28 @@ def test_list_access_requests_uses_repository_filters():
     assert repository.seen_payload == {
         "organisation_id": "hospital-a",
         "status": "pending_review",
+        "user_email": None,
     }
     assert requests[0]["access_request_id"] == "request-1"
+
+
+def test_list_access_requests_can_filter_by_user_email():
+    repository = FakeRepository(row=None)
+
+    requests, error = list_access_requests(
+        settings=object(),
+        organisation_id="hospital-a",
+        user_email="viewer@example.com",
+        repository_factory=lambda settings: repository,
+    )
+
+    assert error is None
+    assert repository.seen_payload == {
+        "organisation_id": "hospital-a",
+        "status": None,
+        "user_email": "viewer@example.com",
+    }
+    assert requests[0]["user_email"] == "viewer@example.com"
 
 
 def test_resolve_access_request_records_admin_decision():

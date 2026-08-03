@@ -23,6 +23,11 @@ they can do.
 10. All approvals, role changes, draft reviews, and publishes are written to
     Postgres audit tables.
 
+If a signed-in user already has a pending request in the same workspace, the
+app updates that pending request instead of creating another open request.
+This keeps the admin queue cleaner and gives the requester a single status to
+follow.
+
 ## Azure Responsibilities
 
 Azure Container Apps Authentication should handle:

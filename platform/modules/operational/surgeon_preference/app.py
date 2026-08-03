@@ -1471,12 +1471,20 @@ with access_tab:
 
     access_disabled_reason = user_management_block_reason(current_user)
     postgres_settings = load_settings().postgres
+    user_access_requests = []
+    user_access_request_error = None
     if current_user:
         st.caption(
             f"Signed in as {current_user.display_name} ({current_user.email}); "
             f"roles: {', '.join(current_user.roles) if current_user.roles else 'viewer'}; "
             f"status: {current_user.status}"
         )
+        if postgres_settings and not current_user.can_manage_users:
+            user_access_requests, user_access_request_error = list_access_requests(
+                postgres_settings,
+                organisation_id=active_organisation_id,
+                user_email=current_user.email,
+            )
 
     st.markdown("#### Request access")
     if current_user is None:
@@ -1488,6 +1496,44 @@ with access_tab:
     elif current_user.can_manage_users:
         st.info("You are already an administrator for this workspace.")
     else:
+        pending_user_request = next(
+            (
+                request
+                for request in user_access_requests
+                if str(request.get("status", "")).strip().lower() == "pending_review"
+            ),
+            None,
+        )
+        if user_access_request_error:
+            st.warning(user_access_request_error)
+        elif user_access_requests:
+            st.markdown("##### Your access requests")
+            user_request_df = pd.DataFrame(user_access_requests)
+            user_request_columns = [
+                column
+                for column in [
+                    "access_request_id",
+                    "requested_roles",
+                    "requested_organisation_name",
+                    "reason",
+                    "status",
+                    "reviewed_by_email",
+                    "reviewed_at",
+                    "created_at",
+                ]
+                if column in user_request_df.columns
+            ]
+            st.dataframe(
+                user_request_df[user_request_columns],
+                width="stretch",
+                hide_index=True,
+            )
+        if pending_user_request:
+            st.info(
+                "You already have a pending request. Submitting this form will update "
+                "that pending request instead of creating a duplicate."
+            )
+
         with st.form("access_request_form"):
             requested_organisation = st.text_input(
                 "Organisation or hospital",
@@ -1504,7 +1550,7 @@ with access_tab:
                 placeholder="Example: I help maintain orthopaedic preference cards for theatre preparation.",
             )
             request_submitted = st.form_submit_button(
-                "Submit Access Request",
+                "Update Pending Access Request" if pending_user_request else "Submit Access Request",
                 disabled=postgres_settings is None,
             )
 
