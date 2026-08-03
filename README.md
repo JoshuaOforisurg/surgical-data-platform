@@ -266,7 +266,9 @@ python3 scripts/cloud_deployment_preflight.py
 ```
 
 See [Cloud Deployment Readiness](docs/cloud-deployment-readiness.md) for the
-CI gate, container validation checklist, and required runtime secrets.
+CI gate, container validation checklist, image-build workflow, and required
+runtime secrets. See [Deployment Scaffold](deployment/README.md) for cloud
+runtime shape and environment templates.
 
 ---
 
