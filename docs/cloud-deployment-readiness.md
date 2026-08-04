@@ -54,17 +54,35 @@ Stock module tests
 Focused Surgeon Preference workflow tests
 ```
 
+`.github/workflows/container-images.yml` builds the Streamlit and batch-job
+container images for both modules. Pull requests build without pushing. Pushes
+to `main`, and manual dispatches with `push_images=true`, push images to GHCR.
+
 ## Live Container Validation
 
 The preflight does not replace a real container run. Before calling the product
 cloud-ready, validate both local stacks with Docker.
 
+Preferred repeatable smoke:
+
+```bash
+python3 scripts/container_smoke_validation.py
+```
+
+This runs the stock pipeline, quality gates, artifact publish, object-store
+dashboard read, surgeon pipeline, and both Streamlit health checks. Use
+`--skip-stock` or `--skip-surgeon` when validating one module at a time.
+
 Stock inventory:
 
 ```bash
 cd platform/modules/operational/stock_inventory
-STOCK_PIPELINE_RUN_ID=run_$(date +%Y%m%d_%H%M%S) \
-  docker compose up --build stock_pipeline stock_quality stock_publish stock_streamlit
+export STOCK_PIPELINE_RUN_ID=run_$(date +%Y%m%d_%H%M%S)
+docker compose up -d stock-minio
+docker compose run --rm stock_pipeline
+docker compose run --rm --no-deps stock_quality
+docker compose run --rm --no-deps stock_publish
+docker compose up -d --build --no-deps stock_streamlit
 ```
 
 Surgeon preference:
@@ -83,6 +101,29 @@ Surgeon Preference Streamlit: http://localhost:8501
 Stock Inventory Streamlit:   http://localhost:8502
 Stock MinIO console:         http://localhost:9011
 ```
+
+If local port `8501` is already used by a non-container Streamlit process, run
+the surgeon smoke UI on another host port. The smoke script uses `8503` for
+this reason.
+
+## Latest Validation Record
+
+Validated locally on August 3, 2026:
+
+```text
+Cloud deployment preflight with tests: passed
+Stock Docker pipeline: passed
+Stock quality gates: passed
+Stock MinIO publish: passed
+Stock Streamlit health: passed on http://localhost:8502
+Stock object-store dashboard snapshot: passed
+Surgeon Docker pipeline: passed
+Surgeon Streamlit health: passed on http://localhost:8503
+```
+
+The surgeon preference smoke used the local `.env` runtime configuration. In
+the current laptop environment, that points storage at Azure Blob/Iceberg and
+therefore validates a cloud-style storage path as well as Docker execution.
 
 ## Cloud Secrets And Runtime Inputs
 
@@ -129,14 +170,18 @@ Cross-pipeline stock readiness analytics
 Organisation-scoped surgeon workflow metadata
 Root cloud deployment preflight
 GitHub Actions readiness gate
+GitHub Actions container image build/push scaffold
+Cloud runtime env templates
+Repeatable Docker smoke validation script
 ```
 
 The remaining blockers before production cloud migration are:
 
 ```text
-Successful live Docker Compose run on a responsive Docker daemon
 Cloud object storage and Postgres secrets configured in the target platform
-Container registry build and push automation
 Target deployment manifests for the chosen cloud runtime
 End-to-end smoke test against managed storage and database services
+Stock Azure Blob adapter if the target cloud must be pure Azure Blob rather
+than an S3-compatible object store
+Observability, alerting, rollback, and release approval policy
 ```

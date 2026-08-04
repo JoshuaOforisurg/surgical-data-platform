@@ -1,7 +1,10 @@
 from streamlit_services.access_control import AppUser
 from streamlit_services.user_registry_service import (
     initial_registry_status,
+    list_access_requests,
     merge_registry_user,
+    resolve_access_request,
+    submit_access_request,
     sync_user_with_registry,
     update_user_access,
 )
@@ -27,6 +30,36 @@ class FakeRepository:
             "display_name": kwargs["display_name"],
             "roles": kwargs["roles"],
             "status": kwargs["status"],
+        }
+
+    def create_access_request(self, **kwargs):
+        self.seen_payload = kwargs
+        return {
+            "access_request_id": "request-1",
+            "user_email": kwargs["user_email"],
+            "display_name": kwargs["display_name"],
+            "requested_roles": kwargs["requested_roles"],
+            "requested_organisation_name": kwargs["requested_organisation_name"],
+            "reason": kwargs["reason"],
+            "status": "pending_review",
+        }
+
+    def list_access_requests(self, **kwargs):
+        self.seen_payload = kwargs
+        return [
+            {
+                "access_request_id": "request-1",
+                "user_email": "viewer@example.com",
+                "status": kwargs.get("status") or "pending_review",
+            }
+        ]
+
+    def resolve_access_request(self, **kwargs):
+        self.seen_payload = kwargs
+        return {
+            "access_request_id": kwargs["access_request_id"],
+            "status": kwargs["decision"],
+            "reviewed_by_email": kwargs["actor_email"],
         }
 
 
@@ -205,3 +238,116 @@ def test_update_user_access_returns_validation_errors():
 
     assert updated is None
     assert error == "Postgres user registry is not configured."
+
+
+def test_submit_access_request_requires_identity():
+    request, error = submit_access_request(
+        settings=object(),
+        user=None,
+        requested_roles=["editor"],
+        requested_organisation_name="Demo Hospital",
+        reason="I need to manage cards.",
+    )
+
+    assert request is None
+    assert error == "Sign in before requesting access."
+
+
+def test_submit_access_request_writes_pending_request():
+    user = AppUser(
+        email="viewer@example.com",
+        display_name="Viewer",
+        roles=("authenticated",),
+        organisation_id="hospital-a",
+        organisation_name="Hospital A",
+    )
+    repository = FakeRepository(row=None)
+
+    request, error = submit_access_request(
+        settings=object(),
+        user=user,
+        requested_roles=["editor"],
+        requested_organisation_name="Hospital A",
+        reason="I prepare theatre preference cards.",
+        repository_factory=lambda settings: repository,
+    )
+
+    assert error is None
+    assert repository.initialised is True
+    assert repository.seen_payload == {
+        "user_email": "viewer@example.com",
+        "display_name": "Viewer",
+        "requested_roles": ["authenticated", "editor"],
+        "requested_organisation_name": "Hospital A",
+        "reason": "I prepare theatre preference cards.",
+        "organisation_id": "hospital-a",
+        "organisation_name": "Hospital A",
+    }
+    assert request["status"] == "pending_review"
+
+
+def test_list_access_requests_uses_repository_filters():
+    repository = FakeRepository(row=None)
+
+    requests, error = list_access_requests(
+        settings=object(),
+        organisation_id="hospital-a",
+        status="pending_review",
+        repository_factory=lambda settings: repository,
+    )
+
+    assert error is None
+    assert repository.initialised is True
+    assert repository.seen_payload == {
+        "organisation_id": "hospital-a",
+        "status": "pending_review",
+        "user_email": None,
+    }
+    assert requests[0]["access_request_id"] == "request-1"
+
+
+def test_list_access_requests_can_filter_by_user_email():
+    repository = FakeRepository(row=None)
+
+    requests, error = list_access_requests(
+        settings=object(),
+        organisation_id="hospital-a",
+        user_email="viewer@example.com",
+        repository_factory=lambda settings: repository,
+    )
+
+    assert error is None
+    assert repository.seen_payload == {
+        "organisation_id": "hospital-a",
+        "status": None,
+        "user_email": "viewer@example.com",
+    }
+    assert requests[0]["user_email"] == "viewer@example.com"
+
+
+def test_resolve_access_request_records_admin_decision():
+    actor = AppUser(
+        email="admin@example.com",
+        display_name="Admin",
+        roles=("admin", "authenticated"),
+    )
+    repository = FakeRepository(row=None)
+
+    request, error = resolve_access_request(
+        settings=object(),
+        access_request_id="request-1",
+        decision="approved",
+        actor=actor,
+        repository_factory=lambda settings: repository,
+    )
+
+    assert error is None
+    assert repository.initialised is True
+    assert repository.seen_payload == {
+        "access_request_id": "request-1",
+        "decision": "approved",
+        "actor_email": "admin@example.com",
+        "actor_name": "Admin",
+        "actor_roles": ["admin", "authenticated"],
+    }
+    assert request["reviewed_by_email"] == "admin@example.com"

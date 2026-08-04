@@ -4,66 +4,82 @@
   "event_count": 250,
   "movement_count": 250,
   "case_count": 25,
+  "messy_sources": true,
   "source_basis": "platform.shared.catalogue",
+  "demand_source": {
+    "mode": "shared_catalogue_profiles",
+    "path": null
+  },
   "clinical_profile_count": 17,
   "artifact_count": 10,
   "artifacts": {
     "item_catalogue": {
       "csv": "synthetic_data/generated/item_catalogue.csv",
       "json": "synthetic_data/generated/item_catalogue.json",
-      "records": 178
+      "records": 178,
+      "csv_profile": "messy_hospital_spreadsheet"
     },
     "supplier_catalogue": {
       "csv": "synthetic_data/generated/supplier_catalogue.csv",
       "json": "synthetic_data/generated/supplier_catalogue.json",
-      "records": 8
+      "records": 8,
+      "csv_profile": "messy_hospital_spreadsheet"
     },
     "stock_locations": {
       "csv": "synthetic_data/generated/stock_locations.csv",
       "json": "synthetic_data/generated/stock_locations.json",
-      "records": 9
+      "records": 9,
+      "csv_profile": "messy_hospital_spreadsheet"
     },
     "stock_lots": {
       "csv": "synthetic_data/generated/stock_lots.csv",
       "json": "synthetic_data/generated/stock_lots.json",
-      "records": 381
+      "records": 381,
+      "csv_profile": "messy_hospital_spreadsheet"
     },
     "erp_stock_balances": {
       "csv": "synthetic_data/generated/erp_stock_balances.csv",
       "json": "synthetic_data/generated/erp_stock_balances.json",
-      "records": 330
+      "records": 330,
+      "csv_profile": "messy_hospital_spreadsheet"
     },
     "manual_stocktake_spreadsheet": {
       "csv": "synthetic_data/generated/manual_stocktake_spreadsheet.csv",
       "json": "synthetic_data/generated/manual_stocktake_spreadsheet.json",
-      "records": 190
+      "records": 190,
+      "csv_profile": "messy_hospital_spreadsheet"
     },
     "scanner_stock_events": {
       "csv": "synthetic_data/generated/scanner_stock_events.csv",
       "json": "synthetic_data/generated/scanner_stock_events.json",
       "records": 250,
+      "csv_profile": "messy_hospital_spreadsheet",
       "jsonl": "synthetic_data/generated/scanner_stock_events.jsonl"
     },
     "stock_movements": {
       "csv": "synthetic_data/generated/stock_movements.csv",
       "json": "synthetic_data/generated/stock_movements.json",
-      "records": 250
+      "records": 250,
+      "csv_profile": "messy_hospital_spreadsheet"
     },
     "upcoming_case_demand": {
       "csv": "synthetic_data/generated/upcoming_case_demand.csv",
       "json": "synthetic_data/generated/upcoming_case_demand.json",
-      "records": 359
+      "records": 381,
+      "csv_profile": "messy_hospital_spreadsheet"
     },
     "substitution_rules": {
       "csv": "synthetic_data/generated/substitution_rules.csv",
       "json": "synthetic_data/generated/substitution_rules.json",
-      "records": 48
+      "records": 48,
+      "csv_profile": "messy_hospital_spreadsheet"
     }
   },
   "notes": [
     "Manual stocktake output represents spreadsheet-based hospital checks.",
     "Scanner stock events represent barcode/scanning inventory systems.",
-    "Upcoming case demand is derived from surgeon preference clinical profiles.",
-    "Item names are clinically aligned to the shared surgical catalogue."
+    "Upcoming case demand is derived from shared surgeon preference clinical profiles.",
+    "Item names are clinically aligned to the shared surgical catalogue.",
+    "CSV outputs intentionally include spreadsheet-style formatting when messy_sources is true."
   ]
 }

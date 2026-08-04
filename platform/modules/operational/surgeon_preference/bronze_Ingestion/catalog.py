@@ -17,6 +17,7 @@ from config.settings import PostgresSettings
 LOGGER = logging.getLogger(__name__)
 APP_USER_STATUSES = {"pending_access", "active", "suspended"}
 APP_USER_ROLES = {"authenticated", "editor", "reviewer", "admin"}
+ACCESS_REQUEST_STATUSES = {"pending_review", "approved", "rejected"}
 DEFAULT_ORGANISATION_ID = "default"
 DEFAULT_ORGANISATION_NAME = "Surgeon Preference Demo"
 
@@ -182,6 +183,22 @@ class BronzeCatalogRepository:
             )
             """,
             """
+            CREATE TABLE IF NOT EXISTS app_workflow.access_requests (
+                access_request_id UUID PRIMARY KEY,
+                organisation_id TEXT REFERENCES app_workflow.organisations(organisation_id),
+                user_email TEXT NOT NULL REFERENCES app_workflow.app_users(user_email),
+                display_name TEXT NOT NULL,
+                requested_roles TEXT[] NOT NULL DEFAULT '{}',
+                requested_organisation_name TEXT,
+                reason TEXT,
+                status TEXT NOT NULL DEFAULT 'pending_review',
+                reviewed_by_email TEXT,
+                reviewed_at TIMESTAMPTZ,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            """
             CREATE TABLE IF NOT EXISTS app_workflow.draft_reviews (
                 review_id UUID PRIMARY KEY,
                 organisation_id TEXT REFERENCES app_workflow.organisations(organisation_id),
@@ -236,6 +253,13 @@ class BronzeCatalogRepository:
             "ALTER TABLE app_workflow.app_users ADD COLUMN IF NOT EXISTS auth_provider TEXT",
             "ALTER TABLE app_workflow.app_users ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ",
             (
+                "ALTER TABLE app_workflow.access_requests ADD COLUMN IF NOT EXISTS "
+                "organisation_id TEXT REFERENCES app_workflow.organisations(organisation_id)"
+            ),
+            "ALTER TABLE app_workflow.access_requests ADD COLUMN IF NOT EXISTS requested_organisation_name TEXT",
+            "ALTER TABLE app_workflow.access_requests ADD COLUMN IF NOT EXISTS reviewed_by_email TEXT",
+            "ALTER TABLE app_workflow.access_requests ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ",
+            (
                 "ALTER TABLE app_workflow.draft_reviews ADD COLUMN IF NOT EXISTS "
                 "organisation_id TEXT REFERENCES app_workflow.organisations(organisation_id)"
             ),
@@ -278,6 +302,9 @@ class BronzeCatalogRepository:
             "CREATE INDEX IF NOT EXISTS idx_organisations_status ON app_workflow.organisations(status)",
             "CREATE INDEX IF NOT EXISTS idx_memberships_user ON app_workflow.organisation_memberships(user_email)",
             "CREATE INDEX IF NOT EXISTS idx_memberships_status ON app_workflow.organisation_memberships(status)",
+            "CREATE INDEX IF NOT EXISTS idx_access_requests_org ON app_workflow.access_requests(organisation_id)",
+            "CREATE INDEX IF NOT EXISTS idx_access_requests_user ON app_workflow.access_requests(user_email)",
+            "CREATE INDEX IF NOT EXISTS idx_access_requests_status ON app_workflow.access_requests(status)",
             "CREATE INDEX IF NOT EXISTS idx_app_users_status ON app_workflow.app_users(status)",
             "CREATE INDEX IF NOT EXISTS idx_app_users_default_org ON app_workflow.app_users(default_organisation_id)",
             "CREATE INDEX IF NOT EXISTS idx_draft_reviews_org ON app_workflow.draft_reviews(organisation_id)",
@@ -308,6 +335,7 @@ class BronzeCatalogRepository:
                 "organisations",
                 "app_users",
                 "organisation_memberships",
+                "access_requests",
                 "draft_reviews",
                 "audit_events",
             ],
@@ -386,6 +414,20 @@ class BronzeCatalogRepository:
                 "user_email",
                 "roles",
                 "status",
+                "created_at",
+                "updated_at",
+            ],
+            ("app_workflow", "access_requests"): [
+                "access_request_id",
+                "organisation_id",
+                "user_email",
+                "display_name",
+                "requested_roles",
+                "requested_organisation_name",
+                "reason",
+                "status",
+                "reviewed_by_email",
+                "reviewed_at",
                 "created_at",
                 "updated_at",
             ],
@@ -661,6 +703,449 @@ class BronzeCatalogRepository:
                 rows = cur.fetchall()
 
         return [dict(row) for row in rows]
+
+    def create_access_request(
+        self,
+        user_email: str,
+        display_name: str,
+        requested_roles: list[str],
+        requested_organisation_name: str,
+        reason: str,
+        organisation_id: str = DEFAULT_ORGANISATION_ID,
+        organisation_name: str = DEFAULT_ORGANISATION_NAME,
+    ) -> Optional[Dict[str, Any]]:
+        if not self.enabled:
+            return None
+
+        normalised_email = user_email.strip().lower()
+        safe_roles = sorted({role.strip().lower() for role in requested_roles if role.strip()})
+        safe_organisation_id = _safe_organisation_id(organisation_id)
+        safe_organisation_name = _safe_organisation_name(organisation_name)
+        requested_organisation_name = requested_organisation_name.strip() or safe_organisation_name
+        reason = reason.strip()
+
+        if not normalised_email:
+            raise ValueError("User email is required.")
+        if "@" not in normalised_email:
+            raise ValueError("User email must look like an email address.")
+        invalid_roles = sorted(set(safe_roles) - APP_USER_ROLES)
+        if invalid_roles:
+            raise ValueError(f"Invalid requested roles: {', '.join(invalid_roles)}")
+        if "authenticated" not in safe_roles:
+            safe_roles = ["authenticated", *safe_roles]
+        if not reason:
+            raise ValueError("Access request reason is required.")
+
+        with psycopg2.connect(self.settings.psycopg2_dsn) as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    INSERT INTO app_workflow.organisations (
+                        organisation_id,
+                        organisation_name,
+                        status
+                    )
+                    VALUES (%s, %s, 'active')
+                    ON CONFLICT (organisation_id)
+                    DO UPDATE SET organisation_name = EXCLUDED.organisation_name,
+                                  updated_at = CURRENT_TIMESTAMP
+                    """,
+                    (safe_organisation_id, safe_organisation_name),
+                )
+                cur.execute(
+                    """
+                    INSERT INTO app_workflow.app_users (
+                        user_email,
+                        display_name,
+                        roles,
+                        status,
+                        default_organisation_id,
+                        auth_provider,
+                        last_seen_at
+                    )
+                    VALUES (%s, %s, ARRAY['authenticated'], 'pending_access', %s, 'access_request', CURRENT_TIMESTAMP)
+                    ON CONFLICT (user_email)
+                    DO UPDATE SET display_name = EXCLUDED.display_name,
+                                  default_organisation_id = EXCLUDED.default_organisation_id,
+                                  last_seen_at = CURRENT_TIMESTAMP,
+                                  updated_at = CURRENT_TIMESTAMP
+                    """,
+                    (
+                        normalised_email,
+                        display_name.strip() or normalised_email,
+                        safe_organisation_id,
+                    ),
+                )
+                self._upsert_organisation_and_membership(
+                    cur,
+                    safe_organisation_id,
+                    safe_organisation_name,
+                    normalised_email,
+                    ["authenticated"],
+                    "pending_access",
+                )
+                cur.execute(
+                    """
+                    UPDATE app_workflow.access_requests
+                    SET display_name = %s,
+                        requested_roles = %s,
+                        requested_organisation_name = %s,
+                        reason = %s,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE organisation_id = %s
+                      AND user_email = %s
+                      AND status = 'pending_review'
+                    RETURNING
+                        access_request_id,
+                        organisation_id,
+                        user_email,
+                        display_name,
+                        requested_roles,
+                        requested_organisation_name,
+                        reason,
+                        status,
+                        created_at,
+                        updated_at
+                    """,
+                    (
+                        display_name.strip() or normalised_email,
+                        safe_roles,
+                        requested_organisation_name,
+                        reason,
+                        safe_organisation_id,
+                        normalised_email,
+                    ),
+                )
+                row = cur.fetchone()
+                if not row:
+                    cur.execute(
+                        """
+                        INSERT INTO app_workflow.access_requests (
+                            access_request_id,
+                            organisation_id,
+                            user_email,
+                            display_name,
+                            requested_roles,
+                            requested_organisation_name,
+                            reason,
+                            status
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, 'pending_review')
+                        RETURNING
+                            access_request_id,
+                            organisation_id,
+                            user_email,
+                            display_name,
+                            requested_roles,
+                            requested_organisation_name,
+                            reason,
+                            status,
+                            created_at,
+                            updated_at
+                        """,
+                        (
+                            str(uuid.uuid4()),
+                            safe_organisation_id,
+                            normalised_email,
+                            display_name.strip() or normalised_email,
+                            safe_roles,
+                            requested_organisation_name,
+                            reason,
+                        ),
+                    )
+                    row = cur.fetchone()
+                cur.execute(
+                    """
+                    INSERT INTO app_workflow.audit_events (
+                        event_id,
+                        event_type,
+                        organisation_id,
+                        actor_email,
+                        actor_name,
+                        actor_roles,
+                        entity_type,
+                        entity_id,
+                        event_payload
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        str(uuid.uuid4()),
+                        "app_access_requested",
+                        safe_organisation_id,
+                        normalised_email,
+                        display_name.strip() or normalised_email,
+                        ["authenticated"],
+                        "access_request",
+                        str(row["access_request_id"]) if row else None,
+                        Json(
+                            _json_safe(
+                                {
+                                    "user_email": normalised_email,
+                                    "display_name": display_name.strip() or normalised_email,
+                                    "requested_roles": safe_roles,
+                                    "requested_organisation_name": requested_organisation_name,
+                                    "reason": reason,
+                                    "organisation_id": safe_organisation_id,
+                                    "organisation_name": safe_organisation_name,
+                                }
+                            )
+                        ),
+                    ),
+                )
+            conn.commit()
+
+        return dict(row) if row else None
+
+    def list_access_requests(
+        self,
+        organisation_id: str | None = None,
+        status: str | None = None,
+        user_email: str | None = None,
+        limit: int = 100,
+    ) -> list[Dict[str, Any]]:
+        if not self.enabled:
+            return []
+
+        filters = []
+        params: list[Any] = []
+        if organisation_id:
+            filters.append("requests.organisation_id = %s")
+            params.append(_safe_organisation_id(organisation_id))
+        if status:
+            filters.append("requests.status = %s")
+            params.append(status.strip().lower())
+        if user_email:
+            filters.append("requests.user_email = %s")
+            params.append(user_email.strip().lower())
+        where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
+        params.append(limit)
+
+        with psycopg2.connect(self.settings.psycopg2_dsn) as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    f"""
+                    SELECT
+                        requests.access_request_id,
+                        requests.organisation_id,
+                        organisations.organisation_name,
+                        requests.user_email,
+                        requests.display_name,
+                        requests.requested_roles,
+                        requests.requested_organisation_name,
+                        requests.reason,
+                        requests.status,
+                        requests.reviewed_by_email,
+                        requests.reviewed_at,
+                        requests.created_at,
+                        requests.updated_at
+                    FROM app_workflow.access_requests requests
+                    LEFT JOIN app_workflow.organisations organisations
+                        ON requests.organisation_id = organisations.organisation_id
+                    {where_clause}
+                    ORDER BY requests.created_at DESC
+                    LIMIT %s
+                    """,
+                    params,
+                )
+                rows = cur.fetchall()
+
+        return [dict(row) for row in rows]
+
+    def resolve_access_request(
+        self,
+        access_request_id: str,
+        decision: str,
+        actor_email: str,
+        actor_name: str,
+        actor_roles: list[str],
+    ) -> Optional[Dict[str, Any]]:
+        if not self.enabled:
+            return None
+
+        normalised_decision = decision.strip().lower()
+        if normalised_decision not in {"approved", "rejected"}:
+            raise ValueError("Access request decision must be approved or rejected.")
+
+        with psycopg2.connect(self.settings.psycopg2_dsn) as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT
+                        access_request_id,
+                        organisation_id,
+                        user_email,
+                        display_name,
+                        requested_roles,
+                        requested_organisation_name,
+                        reason,
+                        status
+                    FROM app_workflow.access_requests
+                    WHERE access_request_id = %s
+                    FOR UPDATE
+                    """,
+                    (access_request_id,),
+                )
+                request_row = cur.fetchone()
+                if not request_row:
+                    raise ValueError("Access request was not found.")
+
+                if normalised_decision == "approved":
+                    approved_roles = sorted(
+                        {
+                            str(role).strip().lower()
+                            for role in request_row["requested_roles"] or []
+                            if str(role).strip()
+                        }
+                    )
+                    if "authenticated" not in approved_roles:
+                        approved_roles = ["authenticated", *approved_roles]
+                    safe_organisation_id = _safe_organisation_id(request_row["organisation_id"])
+                    safe_organisation_name = _safe_organisation_name(
+                        request_row.get("requested_organisation_name")
+                    )
+                    cur.execute(
+                        """
+                        INSERT INTO app_workflow.app_users (
+                            user_email,
+                            display_name,
+                            roles,
+                            status,
+                            default_organisation_id,
+                            auth_provider
+                        )
+                        VALUES (%s, %s, %s, 'active', %s, 'access_request')
+                        ON CONFLICT (user_email)
+                        DO UPDATE SET display_name = EXCLUDED.display_name,
+                                      roles = EXCLUDED.roles,
+                                      status = EXCLUDED.status,
+                                      default_organisation_id = EXCLUDED.default_organisation_id,
+                                      auth_provider = EXCLUDED.auth_provider,
+                                      updated_at = CURRENT_TIMESTAMP
+                        """,
+                        (
+                            request_row["user_email"],
+                            request_row["display_name"],
+                            approved_roles,
+                            safe_organisation_id,
+                        ),
+                    )
+                    self._upsert_organisation_and_membership(
+                        cur,
+                        safe_organisation_id,
+                        safe_organisation_name,
+                        request_row["user_email"],
+                        approved_roles,
+                        "active",
+                    )
+                    cur.execute(
+                        """
+                        INSERT INTO app_workflow.audit_events (
+                            event_id,
+                            event_type,
+                            organisation_id,
+                            actor_email,
+                            actor_name,
+                            actor_roles,
+                            entity_type,
+                            entity_id,
+                            event_payload
+                        )
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        """,
+                        (
+                            str(uuid.uuid4()),
+                            "app_user_access_updated",
+                            safe_organisation_id,
+                            actor_email.strip().lower(),
+                            actor_name.strip() or actor_email.strip().lower(),
+                            actor_roles,
+                            "app_user",
+                            request_row["user_email"],
+                            Json(
+                                _json_safe(
+                                    {
+                                        "user_email": request_row["user_email"],
+                                        "display_name": request_row["display_name"],
+                                        "roles": approved_roles,
+                                        "status": "active",
+                                        "actor_email": actor_email.strip().lower(),
+                                        "actor_name": actor_name.strip() or actor_email.strip().lower(),
+                                        "actor_roles": actor_roles,
+                                        "organisation_id": safe_organisation_id,
+                                        "organisation_name": safe_organisation_name,
+                                        "access_request_id": str(access_request_id),
+                                    }
+                                )
+                            ),
+                        ),
+                    )
+
+                cur.execute(
+                    """
+                    UPDATE app_workflow.access_requests
+                    SET status = %s,
+                        reviewed_by_email = %s,
+                        reviewed_at = CURRENT_TIMESTAMP,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE access_request_id = %s
+                    RETURNING
+                        access_request_id,
+                        organisation_id,
+                        user_email,
+                        display_name,
+                        requested_roles,
+                        requested_organisation_name,
+                        reason,
+                        status,
+                        reviewed_by_email,
+                        reviewed_at,
+                        created_at,
+                        updated_at
+                    """,
+                    (normalised_decision, actor_email.strip().lower(), access_request_id),
+                )
+                resolved_row = cur.fetchone()
+                cur.execute(
+                    """
+                    INSERT INTO app_workflow.audit_events (
+                        event_id,
+                        event_type,
+                        organisation_id,
+                        actor_email,
+                        actor_name,
+                        actor_roles,
+                        entity_type,
+                        entity_id,
+                        event_payload
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        str(uuid.uuid4()),
+                        "app_access_request_resolved",
+                        request_row["organisation_id"],
+                        actor_email.strip().lower(),
+                        actor_name.strip() or actor_email.strip().lower(),
+                        actor_roles,
+                        "access_request",
+                        str(access_request_id),
+                        Json(
+                            _json_safe(
+                                {
+                                    **dict(request_row),
+                                    "decision": normalised_decision,
+                                    "actor_email": actor_email.strip().lower(),
+                                    "actor_name": actor_name.strip() or actor_email.strip().lower(),
+                                    "actor_roles": actor_roles,
+                                }
+                            )
+                        ),
+                    ),
+                )
+            conn.commit()
+
+        return dict(resolved_row) if resolved_row else None
 
     def update_app_user_access(
         self,

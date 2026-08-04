@@ -253,10 +253,21 @@ any required gate fails.
 ## MinIO and Docker Preview
 
 Run the stock pipeline, quality gates, MinIO artifact publish, and Streamlit UI
-with Docker Compose:
+with the platform smoke script:
 
 ```bash
-docker compose up --build stock_pipeline stock_quality stock_publish stock_streamlit
+python3 ../../../../scripts/container_smoke_validation.py --skip-surgeon
+```
+
+Or run the module steps manually with Docker Compose:
+
+```bash
+export STOCK_PIPELINE_RUN_ID=run_$(date +%Y%m%d_%H%M%S)
+docker compose up -d stock-minio
+docker compose run --rm stock_pipeline
+docker compose run --rm --no-deps stock_quality
+docker compose run --rm --no-deps stock_publish
+docker compose up -d --build --no-deps stock_streamlit
 ```
 
 The Streamlit dashboard is exposed on `http://localhost:8502` by default. MinIO
@@ -270,7 +281,8 @@ The Docker dashboard reads Gold artifacts back from MinIO by setting
 continues to read Gold manifests directly from `data_lake/gold/manifests/`.
 
 The default Docker run id is `run_docker_preview`. Use a new run id when running
-the compose job repeatedly:
+the compose job repeatedly. Reusing an existing run id is expected to fail
+because the bronze layer is append-only:
 
 ```bash
 STOCK_PIPELINE_RUN_ID=run_$(date +%Y%m%d_%H%M%S) docker compose up --build stock_pipeline stock_quality stock_publish

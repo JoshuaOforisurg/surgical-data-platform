@@ -82,8 +82,14 @@ def _python_files(paths: Iterable[Path]) -> list[Path]:
 def check_required_files() -> list[CheckResult]:
     required_files = [
         REPO_ROOT / ".github" / "workflows" / "platform-readiness.yml",
+        REPO_ROOT / ".github" / "workflows" / "container-images.yml",
         REPO_ROOT / "docs" / "cloud-deployment-readiness.md",
+        REPO_ROOT / "deployment" / "README.md",
+        REPO_ROOT / "deployment" / "runtime_env" / "stock_inventory.cloud.env.example",
+        REPO_ROOT / "deployment" / "runtime_env" / "surgeon_preference.azure.env.example",
+        REPO_ROOT / "scripts" / "container_smoke_validation.py",
         STOCK_ROOT / "docker-compose.yml",
+        STOCK_ROOT / ".env.example",
         STOCK_ROOT / "Dockerfile",
         STOCK_ROOT / "Dockerfile.job",
         STOCK_ROOT / "orchestration" / "cloud_readiness.py",
@@ -305,6 +311,7 @@ def check_tests(timeout_seconds: int, include_tests: bool) -> list[CheckResult]:
     ]
     surgeon_tests = [
         "tests/test_access_control.py",
+        "tests/test_auth_links.py",
         "tests/test_draft_review_service.py",
         "tests/test_publishing_service.py",
         "tests/test_user_registry_service.py",

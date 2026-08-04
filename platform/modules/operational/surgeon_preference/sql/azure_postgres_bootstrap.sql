@@ -83,19 +83,54 @@ create table if not exists iceberg_catalog.catalog_bootstrap (
     updated_at timestamptz not null default current_timestamp
 );
 
+create table if not exists app_workflow.organisations (
+    organisation_id text primary key,
+    organisation_name text not null,
+    status text not null default 'active',
+    created_at timestamptz not null default current_timestamp,
+    updated_at timestamptz not null default current_timestamp
+);
+
 create table if not exists app_workflow.app_users (
     user_email text primary key,
     display_name text not null,
     roles text[] not null default '{}',
     status text not null default 'pending_access',
+    default_organisation_id text references app_workflow.organisations(organisation_id),
     auth_provider text,
     last_seen_at timestamptz,
     created_at timestamptz not null default current_timestamp,
     updated_at timestamptz not null default current_timestamp
 );
 
+create table if not exists app_workflow.organisation_memberships (
+    organisation_id text not null references app_workflow.organisations(organisation_id),
+    user_email text not null references app_workflow.app_users(user_email),
+    roles text[] not null default '{}',
+    status text not null default 'pending_access',
+    created_at timestamptz not null default current_timestamp,
+    updated_at timestamptz not null default current_timestamp,
+    primary key (organisation_id, user_email)
+);
+
+create table if not exists app_workflow.access_requests (
+    access_request_id uuid primary key,
+    organisation_id text references app_workflow.organisations(organisation_id),
+    user_email text not null references app_workflow.app_users(user_email),
+    display_name text not null,
+    requested_roles text[] not null default '{}',
+    requested_organisation_name text,
+    reason text,
+    status text not null default 'pending_review',
+    reviewed_by_email text,
+    reviewed_at timestamptz,
+    created_at timestamptz not null default current_timestamp,
+    updated_at timestamptz not null default current_timestamp
+);
+
 create table if not exists app_workflow.draft_reviews (
     review_id uuid primary key,
+    organisation_id text references app_workflow.organisations(organisation_id),
     draft_id text,
     draft_object_key text,
     blob_review_key text,
@@ -118,6 +153,7 @@ create table if not exists app_workflow.draft_reviews (
 create table if not exists app_workflow.audit_events (
     event_id uuid primary key,
     event_type text not null,
+    organisation_id text references app_workflow.organisations(organisation_id),
     actor_email text,
     actor_name text,
     actor_roles text[] not null default '{}',
@@ -127,8 +163,21 @@ create table if not exists app_workflow.audit_events (
     created_at timestamptz not null default current_timestamp
 );
 
+insert into app_workflow.organisations (organisation_id, organisation_name, status)
+values ('default', 'Surgeon Preference Demo', 'active')
+on conflict (organisation_id) do nothing;
+
 alter table app_workflow.draft_reviews
     add column if not exists blob_review_key text;
+
+alter table app_workflow.draft_reviews
+    add column if not exists organisation_id text references app_workflow.organisations(organisation_id);
+
+alter table app_workflow.audit_events
+    add column if not exists organisation_id text references app_workflow.organisations(organisation_id);
+
+alter table app_workflow.app_users
+    add column if not exists default_organisation_id text references app_workflow.organisations(organisation_id);
 
 alter table app_workflow.app_users
     add column if not exists status text not null default 'pending_access';
@@ -138,6 +187,62 @@ alter table app_workflow.app_users
 
 alter table app_workflow.app_users
     add column if not exists last_seen_at timestamptz;
+
+alter table app_workflow.access_requests
+    add column if not exists organisation_id text references app_workflow.organisations(organisation_id);
+
+alter table app_workflow.access_requests
+    add column if not exists requested_organisation_name text;
+
+alter table app_workflow.access_requests
+    add column if not exists reviewed_by_email text;
+
+alter table app_workflow.access_requests
+    add column if not exists reviewed_at timestamptz;
+
+update app_workflow.app_users
+set default_organisation_id = 'default'
+where default_organisation_id is null;
+
+update app_workflow.draft_reviews
+set organisation_id = 'default'
+where organisation_id is null;
+
+update app_workflow.audit_events
+set organisation_id = 'default'
+where organisation_id is null;
+
+insert into app_workflow.organisation_memberships (
+    organisation_id,
+    user_email,
+    roles,
+    status
+)
+select
+    coalesce(default_organisation_id, 'default'),
+    user_email,
+    roles,
+    status
+from app_workflow.app_users
+on conflict (organisation_id, user_email) do nothing;
+
+create index if not exists idx_organisations_status
+    on app_workflow.organisations(status);
+
+create index if not exists idx_memberships_user
+    on app_workflow.organisation_memberships(user_email);
+
+create index if not exists idx_memberships_status
+    on app_workflow.organisation_memberships(status);
+
+create index if not exists idx_access_requests_org
+    on app_workflow.access_requests(organisation_id);
+
+create index if not exists idx_access_requests_user
+    on app_workflow.access_requests(user_email);
+
+create index if not exists idx_access_requests_status
+    on app_workflow.access_requests(status);
 
 create index if not exists idx_app_users_status
     on app_workflow.app_users(status);
