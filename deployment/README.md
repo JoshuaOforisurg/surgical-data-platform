@@ -36,8 +36,8 @@ Stock inventory:
 ```text
 Container App:       stock-inventory-app
 Container App Job:   stock-inventory-job
-Object storage:      Managed S3-compatible object store or hosted MinIO
-Metadata database:   Not required for the current stock module
+Object storage:      Azure Blob container
+Metadata database:   Azure Database for PostgreSQL
 Secrets:             Container App secrets or Key Vault references
 ```
 
@@ -55,9 +55,9 @@ Secrets:             Container App secrets or Key Vault references
 8. Run the cross-pipeline stock readiness flow after surgeon preference Gold is
    published.
 
-## Current Limitation
+## Storage Providers
 
-The surgeon preference module can already switch between local MinIO and Azure
-Blob from environment variables. The stock inventory module currently expects
-an S3-compatible object-store API. For a pure Azure Blob deployment, add an
-Azure-backed implementation beside `storage/object_store.py` before production.
+Both operational modules support Azure Blob Storage for cloud deployments.
+Stock inventory retains the local MinIO adapter for Docker development and
+selects Azure Blob when `AZURE_STORAGE_CONNECTION_STRING` is supplied. Its
+pipeline metadata is stored in PostgreSQL in both environments.

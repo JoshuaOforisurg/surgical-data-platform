@@ -17,6 +17,8 @@ from config.settings import ObjectStoreSettings, load_settings
 
 
 LOCAL_ENDPOINT_HOSTS = {"localhost", "127.0.0.1", "::1", "stock-minio"}
+LOCAL_DATABASE_HOSTS = {"localhost", "127.0.0.1", "::1", "stock-postgres"}
+TLS_DATABASE_MODES = {"require", "verify-ca", "verify-full"}
 DEFAULT_CREDENTIALS = {
     ("minioadmin", "minioadmin"),
     ("", ""),
@@ -53,7 +55,8 @@ def object_store_endpoint_is_remote(settings: ObjectStoreSettings) -> bool:
 
 
 def object_store_credentials_are_not_defaults(settings: ObjectStoreSettings) -> bool:
-    return (settings.access_key, settings.secret_key) not in DEFAULT_CREDENTIALS
+    credentials = (settings.access_key.strip(), settings.secret_key.strip())
+    return all(credentials) and credentials not in DEFAULT_CREDENTIALS
 
 
 def existing_path_from_env(name: str) -> bool:
@@ -61,28 +64,44 @@ def existing_path_from_env(name: str) -> bool:
     return bool(value and Path(value).exists())
 
 
+def azure_blob_configured() -> bool:
+    return bool(os.getenv("AZURE_STORAGE_CONNECTION_STRING", "").strip())
+
+
+def postgres_configuration() -> tuple[str, str, str, str]:
+    return tuple(
+        os.getenv(name, "").strip()
+        for name in ("STOCK_DB_HOST", "STOCK_DB_USER", "STOCK_DB_PASSWORD", "STOCK_DB_NAME")
+    )
+
+
 def run_checks(require_cross_pipeline: bool = False) -> CloudReadinessResult:
     settings = load_settings()
     dashboard_mode = os.getenv("STOCK_DASHBOARD_STORAGE_MODE", "local").strip().lower()
+    azure_mode = azure_blob_configured()
+    container_name = os.getenv("AZURE_CONTAINER_NAME", "").strip()
+    database_config = postgres_configuration()
+    database_host = database_config[0].lower()
+    database_sslmode = os.getenv("STOCK_DB_SSLMODE", "").strip().lower()
 
     checks = [
         CloudReadinessCheck(
-            name="object_store.endpoint_remote",
-            passed=object_store_endpoint_is_remote(settings.object_store),
+            name="object_store.cloud_provider_configured",
+            passed=azure_mode or object_store_endpoint_is_remote(settings.object_store),
             severity="error",
-            message="Object store endpoint points to a remote/cloud service, not local MinIO.",
+            message="Azure Blob or a remote S3-compatible object store is configured.",
         ),
         CloudReadinessCheck(
-            name="object_store.credentials_not_defaults",
-            passed=object_store_credentials_are_not_defaults(settings.object_store),
+            name="object_store.credentials_configured",
+            passed=azure_mode or object_store_credentials_are_not_defaults(settings.object_store),
             severity="error",
-            message="Object store credentials are not local development defaults.",
+            message="Cloud object-store credentials are configured and are not local defaults.",
         ),
         CloudReadinessCheck(
-            name="object_store.bucket_configured",
-            passed=bool(settings.object_store.bucket.strip()),
+            name="object_store.container_configured",
+            passed=bool(container_name) if azure_mode else bool(settings.object_store.bucket.strip()),
             severity="error",
-            message="Object store bucket is configured.",
+            message="Object-store container or bucket is configured.",
         ),
         CloudReadinessCheck(
             name="object_store.root_prefix_configured",
@@ -95,6 +114,24 @@ def run_checks(require_cross_pipeline: bool = False) -> CloudReadinessResult:
             passed=dashboard_mode == "object_store",
             severity="error",
             message="Streamlit dashboard is configured to read published Gold artifacts from object storage.",
+        ),
+        CloudReadinessCheck(
+            name="database.configuration_complete",
+            passed=all(database_config),
+            severity="error",
+            message="Managed PostgreSQL host, user, password, and database are configured.",
+        ),
+        CloudReadinessCheck(
+            name="database.managed_host",
+            passed=bool(database_host) and database_host not in LOCAL_DATABASE_HOSTS,
+            severity="error",
+            message="PostgreSQL points to a managed host rather than a local Docker service.",
+        ),
+        CloudReadinessCheck(
+            name="database.tls_required",
+            passed=database_sslmode in TLS_DATABASE_MODES,
+            severity="error",
+            message="PostgreSQL transport encryption is explicitly required.",
         ),
         CloudReadinessCheck(
             name="pipeline.source_dir_configurable",

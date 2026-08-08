@@ -318,7 +318,8 @@ STOCK_DASHBOARD_STORAGE_MODE=object_store
 SURGEON_PREFERENCE_GOLD_PATH
 ```
 
-Local MinIO credentials such as `minioadmin/minioadmin` and endpoints such as
-`localhost` or `stock-minio` are valid for preview only. For cloud deployment,
-replace them with managed S3-compatible storage credentials supplied by the
-deployment platform's secret manager.
+Supply local MinIO credentials through an ignored `.env` file; the application
+does not provide a default password. Endpoints such as `localhost` or
+`stock-minio` are valid for preview only. For cloud deployment, supply Azure
+Blob configuration or managed S3-compatible credentials through the deployment
+platform's secret manager.
