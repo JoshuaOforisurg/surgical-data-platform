@@ -13,8 +13,9 @@ if str(MODULE_ROOT) not in sys.path:
     sys.path.insert(0, str(MODULE_ROOT))
 
 from config.settings import ObjectStoreSettings, load_settings
+from metadata.repository import metadata_repository_from_settings
 from orchestration.quality_gates import latest_pipeline_manifest
-from storage.object_store import S3ObjectStoreClient, content_type_for, sha256_file
+from storage.object_store import ObjectStoreClient, content_type_for, sha256_file
 
 
 @dataclass(frozen=True)
@@ -47,11 +48,13 @@ def read_json(path: Path) -> dict[str, Any]:
 class RunArtifactPublisher:
     def __init__(
         self,
-        object_store: S3ObjectStoreClient,
+        object_store: Any,
         settings: ObjectStoreSettings,
+        metadata_repository: Any | None = None,
     ):
         self.object_store = object_store
         self.settings = settings
+        self.metadata_repository = metadata_repository
 
     def publish(self, pipeline_manifest_path: Path) -> PublishRunResult:
         pipeline_manifest_path = Path(pipeline_manifest_path)
@@ -76,10 +79,13 @@ class RunArtifactPublisher:
             json.dumps({**result_without_uri, "object_manifest_uri": object_manifest_uri}, indent=2),
             content_type="application/json",
         )
-        return PublishRunResult(
+        result = PublishRunResult(
             **result_without_uri,
             object_manifest_uri=object_manifest_uri,
         )
+        if self.metadata_repository is not None:
+            self.metadata_repository.record_published_artifacts(result)
+        return result
 
     def collect_local_paths(self, pipeline_manifest_path: Path, pipeline_manifest: dict[str, Any]) -> list[Path]:
         paths = [pipeline_manifest_path]
@@ -139,7 +145,7 @@ class RunArtifactPublisher:
 
 
 def main(argv: Iterable[str] | None = None) -> None:
-    parser = argparse.ArgumentParser(description="Publish stock inventory run artifacts to MinIO/S3.")
+    parser = argparse.ArgumentParser(description="Publish stock inventory run artifacts to object storage.")
     parser.add_argument(
         "--pipeline-manifest",
         default=None,
@@ -148,10 +154,11 @@ def main(argv: Iterable[str] | None = None) -> None:
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     settings = load_settings()
+    repository = metadata_repository_from_settings(settings)
     manifest_path = Path(args.pipeline_manifest) if args.pipeline_manifest else latest_pipeline_manifest()
-    object_store = S3ObjectStoreClient(settings.object_store)
+    object_store = ObjectStoreClient(settings.object_store)
     object_store.wait_until_ready()
-    result = RunArtifactPublisher(object_store, settings.object_store).publish(manifest_path)
+    result = RunArtifactPublisher(object_store, settings.object_store, repository).publish(manifest_path)
     print(json.dumps(result.to_dict(), indent=2))
 
 

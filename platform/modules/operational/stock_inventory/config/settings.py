@@ -18,10 +18,21 @@ class ObjectStoreSettings:
 
 
 @dataclass(frozen=True)
+class PostgresSettings:
+    host: str
+    port: int
+    user: str
+    password: str
+    database: str
+    sslmode: str = "prefer"
+
+
+@dataclass(frozen=True)
 class PipelineSettings:
     project_root: Path
     default_source_dir: Path
     object_store: ObjectStoreSettings
+    postgres: PostgresSettings | None
 
 
 def env_value(name: str, default: str) -> str:
@@ -37,15 +48,31 @@ def env_bool(name: str, default: bool = False) -> bool:
 
 
 def load_settings() -> PipelineSettings:
+    postgres_host = os.getenv("STOCK_DB_HOST", "").strip()
+    postgres_user = os.getenv("STOCK_DB_USER", "").strip()
+    postgres_password = os.getenv("STOCK_DB_PASSWORD", "").strip()
+    postgres_database = os.getenv("STOCK_DB_NAME", "").strip()
+    postgres = None
+    if postgres_host and postgres_user and postgres_password and postgres_database:
+        postgres = PostgresSettings(
+            host=postgres_host,
+            port=int(env_value("STOCK_DB_PORT", "5432")),
+            user=postgres_user,
+            password=postgres_password,
+            database=postgres_database,
+            sslmode=env_value("STOCK_DB_SSLMODE", "prefer"),
+        )
+
     return PipelineSettings(
         project_root=MODULE_ROOT,
         default_source_dir=Path(env_value("STOCK_PIPELINE_SOURCE_DIR", str(SYNTHETIC_GENERATED_DIR))),
         object_store=ObjectStoreSettings(
             endpoint=env_value("MINIO_ENDPOINT", "http://localhost:9000"),
             access_key=env_value("MINIO_ROOT_USER", env_value("MINIO_ACCESS_KEY", "minioadmin")),
-            secret_key=env_value("MINIO_ROOT_PASSWORD", env_value("MINIO_SECRET_KEY", "minioadmin")),
+            secret_key=env_value("MINIO_ROOT_PASSWORD", env_value("MINIO_SECRET_KEY", "")),
             bucket=env_value("MINIO_BUCKET", "stock-inventory"),
             secure=env_bool("MINIO_SECURE", False),
             root_prefix=env_value("MINIO_ROOT_PREFIX", "stock_inventory"),
         ),
+        postgres=postgres,
     )

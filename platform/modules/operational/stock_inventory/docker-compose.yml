@@ -10,9 +10,15 @@ services:
       SURGEON_PREFERENCE_GOLD_PATH: ${SURGEON_PREFERENCE_GOLD_PATH:-}
       MINIO_ENDPOINT: http://stock-minio:9000
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
       MINIO_BUCKET: ${MINIO_BUCKET:-stock-inventory}
       MINIO_ROOT_PREFIX: ${MINIO_ROOT_PREFIX:-stock_inventory}
+      STOCK_DB_HOST: stock-postgres
+      STOCK_DB_PORT: 5432
+      STOCK_DB_USER: ${STOCK_DB_USER:-stock_inventory_app}
+      STOCK_DB_PASSWORD: ${STOCK_DB_PASSWORD:?STOCK_DB_PASSWORD is required}
+      STOCK_DB_NAME: ${STOCK_DB_NAME:-stock_inventory}
+      STOCK_DB_SSLMODE: ${STOCK_DB_SSLMODE:-prefer}
     volumes:
       - ./data_lake:/app/data_lake
       - ./synthetic_data:/app/synthetic_data
@@ -35,6 +41,33 @@ services:
     depends_on:
       stock-minio:
         condition: service_started
+      stock_metadata_migrate:
+        condition: service_completed_successfully
+      stock-postgres:
+        condition: service_healthy
+
+  stock_metadata_migrate:
+    build:
+      context: ../../..
+      dockerfile: modules/operational/stock_inventory/Dockerfile.job
+    environment:
+      SURGICAL_PLATFORM_ROOT: /app
+      STOCK_DB_HOST: stock-postgres
+      STOCK_DB_PORT: 5432
+      STOCK_DB_USER: ${STOCK_DB_USER:-stock_inventory_app}
+      STOCK_DB_PASSWORD: ${STOCK_DB_PASSWORD:?STOCK_DB_PASSWORD is required}
+      STOCK_DB_NAME: ${STOCK_DB_NAME:-stock_inventory}
+      STOCK_DB_SSLMODE: ${STOCK_DB_SSLMODE:-prefer}
+      STOCK_MIGRATION_DB_HOST: ${STOCK_MIGRATION_DB_HOST:-}
+      STOCK_MIGRATION_DB_PORT: ${STOCK_MIGRATION_DB_PORT:-}
+      STOCK_MIGRATION_DB_USER: ${STOCK_MIGRATION_DB_USER:-}
+      STOCK_MIGRATION_DB_PASSWORD: ${STOCK_MIGRATION_DB_PASSWORD:-}
+      STOCK_MIGRATION_DB_NAME: ${STOCK_MIGRATION_DB_NAME:-}
+      STOCK_MIGRATION_DB_SSLMODE: ${STOCK_MIGRATION_DB_SSLMODE:-}
+    command: ["python", "-m", "metadata.migrate"]
+    depends_on:
+      stock-postgres:
+        condition: service_healthy
 
   stock_quality:
     build:
@@ -43,6 +76,12 @@ services:
     container_name: stock_inventory_quality
     environment:
       SURGICAL_PLATFORM_ROOT: /app
+      STOCK_DB_HOST: stock-postgres
+      STOCK_DB_PORT: 5432
+      STOCK_DB_USER: ${STOCK_DB_USER:-stock_inventory_app}
+      STOCK_DB_PASSWORD: ${STOCK_DB_PASSWORD:?STOCK_DB_PASSWORD is required}
+      STOCK_DB_NAME: ${STOCK_DB_NAME:-stock_inventory}
+      STOCK_DB_SSLMODE: ${STOCK_DB_SSLMODE:-prefer}
     volumes:
       - ./data_lake:/app/data_lake
     command:
@@ -54,6 +93,8 @@ services:
     depends_on:
       stock_pipeline:
         condition: service_completed_successfully
+      stock-postgres:
+        condition: service_healthy
 
   stock_publish:
     build:
@@ -64,9 +105,15 @@ services:
       SURGICAL_PLATFORM_ROOT: /app
       MINIO_ENDPOINT: http://stock-minio:9000
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
       MINIO_BUCKET: ${MINIO_BUCKET:-stock-inventory}
       MINIO_ROOT_PREFIX: ${MINIO_ROOT_PREFIX:-stock_inventory}
+      STOCK_DB_HOST: stock-postgres
+      STOCK_DB_PORT: 5432
+      STOCK_DB_USER: ${STOCK_DB_USER:-stock_inventory_app}
+      STOCK_DB_PASSWORD: ${STOCK_DB_PASSWORD:?STOCK_DB_PASSWORD is required}
+      STOCK_DB_NAME: ${STOCK_DB_NAME:-stock_inventory}
+      STOCK_DB_SSLMODE: ${STOCK_DB_SSLMODE:-prefer}
     volumes:
       - ./data_lake:/app/data_lake
     command:
@@ -80,6 +127,8 @@ services:
         condition: service_completed_successfully
       stock-minio:
         condition: service_started
+      stock-postgres:
+        condition: service_healthy
 
   stock_streamlit:
     build:
@@ -91,7 +140,7 @@ services:
       STOCK_DASHBOARD_STORAGE_MODE: object_store
       MINIO_ENDPOINT: http://stock-minio:9000
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
       MINIO_BUCKET: ${MINIO_BUCKET:-stock-inventory}
       MINIO_ROOT_PREFIX: ${MINIO_ROOT_PREFIX:-stock_inventory}
     ports:
@@ -110,7 +159,7 @@ services:
     container_name: stock_inventory_minio
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD is required}
     command: server /data --console-address ":9001"
     ports:
       - "${STOCK_MINIO_API_PORT:-9010}:9000"
@@ -118,5 +167,23 @@ services:
     volumes:
       - stock_minio_data:/data
 
+  stock-postgres:
+    image: postgres:16
+    container_name: stock_inventory_postgres
+    environment:
+      POSTGRES_USER: ${STOCK_DB_USER:-stock_inventory_app}
+      POSTGRES_PASSWORD: ${STOCK_DB_PASSWORD:?STOCK_DB_PASSWORD is required}
+      POSTGRES_DB: ${STOCK_DB_NAME:-stock_inventory}
+    ports:
+      - "${STOCK_POSTGRES_PORT:-5434}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+    volumes:
+      - stock_postgres_data:/var/lib/postgresql/data
+
 volumes:
   stock_minio_data:
+  stock_postgres_data:

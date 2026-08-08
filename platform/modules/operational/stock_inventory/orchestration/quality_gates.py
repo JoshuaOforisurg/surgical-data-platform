@@ -13,6 +13,7 @@ if str(MODULE_ROOT) not in sys.path:
 
 from config.paths import PIPELINE_MANIFEST_DIR, QUALITY_MANIFEST_DIR
 from contracts.pipeline_contracts import PipelineQualityCheck, PipelineQualityResult
+from metadata.repository import metadata_repository_from_settings
 
 
 REQUIRED_STAGES = ("bronze", "silver_a", "silver_b", "gold")
@@ -41,8 +42,9 @@ def read_json(path: Path) -> dict[str, Any]:
 
 
 class PipelineQualityGateRunner:
-    def __init__(self, output_dir: Path = QUALITY_MANIFEST_DIR):
+    def __init__(self, output_dir: Path = QUALITY_MANIFEST_DIR, metadata_repository: Any | None = None):
         self.output_dir = output_dir
+        self.metadata_repository = metadata_repository
 
     def evaluate(
         self,
@@ -87,6 +89,8 @@ class PipelineQualityGateRunner:
             manifest_path=str(manifest_path),
         )
         manifest_path.write_text(json.dumps(result.to_dict(), indent=2), encoding="utf-8")
+        if self.metadata_repository is not None:
+            self.metadata_repository.record_quality_result(result)
         return result
 
     def required_stage_checks(self, stages: dict[str, dict[str, Any]]) -> list[PipelineQualityCheck]:
@@ -233,7 +237,10 @@ def main(argv: Iterable[str] | None = None) -> None:
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     manifest_path = Path(args.pipeline_manifest) if args.pipeline_manifest else latest_pipeline_manifest()
-    result = PipelineQualityGateRunner().evaluate(
+    from config.settings import load_settings
+
+    repository = metadata_repository_from_settings(load_settings())
+    result = PipelineQualityGateRunner(metadata_repository=repository).evaluate(
         manifest_path,
         max_invalid_silver_a_records=args.max_invalid_silver_a_records,
     )
