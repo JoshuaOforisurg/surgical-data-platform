@@ -26,11 +26,11 @@ def main() -> None:
     root_prefix = None
     if object_store_mode_enabled():
         from config.settings import load_settings
-        from storage.object_store import S3ObjectStoreClient
+        from storage.object_store import ObjectStoreClient
 
         settings = load_settings()
         root_prefix = settings.object_store.root_prefix
-        object_store = S3ObjectStoreClient(settings.object_store)
+        object_store = ObjectStoreClient(settings.object_store)
         object_store.wait_until_ready()
         manifest_options = list_object_gold_manifests(object_store, root_prefix)
     else:

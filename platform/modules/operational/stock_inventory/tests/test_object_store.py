@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from config.settings import load_settings
-from storage.object_store import content_type_for, normalise_metadata, sha256_file
+from config.settings import ObjectStoreSettings
+from storage import object_store
+from storage.object_store import ObjectStoreClient, content_type_for, normalise_metadata, sha256_file
 
 
 def test_load_settings_uses_stock_inventory_defaults(monkeypatch):
@@ -31,3 +33,35 @@ def test_object_store_helpers_normalise_metadata_and_hash_files(tmp_path):
     }
     assert content_type_for(path) == "application/json"
     assert sha256_file(path)
+
+
+def test_object_store_factory_selects_azure_when_connection_string_is_present(monkeypatch):
+    settings = ObjectStoreSettings(
+        endpoint="http://localhost:9000",
+        access_key="minioadmin",
+        secret_key="minioadmin",
+        bucket="stock-inventory",
+        secure=False,
+        root_prefix="stock_inventory",
+    )
+    sentinel = object()
+    monkeypatch.setenv("AZURE_STORAGE_CONNECTION_STRING", "UseDevelopmentStorage=true")
+    monkeypatch.setattr(object_store, "AzureBlobObjectStoreClient", lambda selected: sentinel)
+
+    assert ObjectStoreClient(settings) is sentinel
+
+
+def test_object_store_factory_defaults_to_s3(monkeypatch):
+    settings = ObjectStoreSettings(
+        endpoint="http://localhost:9000",
+        access_key="minioadmin",
+        secret_key="minioadmin",
+        bucket="stock-inventory",
+        secure=False,
+        root_prefix="stock_inventory",
+    )
+    sentinel = object()
+    monkeypatch.delenv("AZURE_STORAGE_CONNECTION_STRING", raising=False)
+    monkeypatch.setattr(object_store, "S3ObjectStoreClient", lambda selected: sentinel)
+
+    assert ObjectStoreClient(settings) is sentinel
