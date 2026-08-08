@@ -5,6 +5,10 @@ real operating theatre experience. It shows how everyday surgical workflow
 problems can be turned into reliable data pipelines, dashboards, and operational
 tools.
 
+The platform is built mainly with **Python**, using it to generate realistic
+synthetic data, clean messy source files, run the pipelines, publish outputs,
+and power the dashboard services.
+
 The project uses **synthetic data only**. It does not contain real patient data,
 staff records, theatre lists, hospital stock records, or confidential hospital
 information.
@@ -129,50 +133,16 @@ use every day and turns it into practical readiness views.
 
 ```mermaid
 flowchart TB
-    Team["Theatre teams\nsurgeons, scrub staff, ODPs,\nstores, coordinators"]
+    A["Theatre teams"]
+    B["Hospital information\npreferences, stock checks,\nscanners, suppliers"]
+    C["Surgical Data Platform"]
+    D["Built pipelines\nSurgeon Preference\nStock & Inventory"]
+    E["Operational outputs\npreference cards, readiness,\nshortages, reorders"]
+    F["Better theatre preparation"]
+    G["Audit trail\nwhat changed and why"]
 
-    subgraph Sources["Hospital information sources"]
-        PreferenceSource["Preference cards\nprocedure needs"]
-        StockSource["Stock checks\nspreadsheets and counts"]
-        ScannerSource["Scanning systems\nbarcode events"]
-        SupplierSource["Suppliers and ERP\norders, lots, prices"]
-        FutureSource["Future sources\ncase lists, devices, EHR"]
-    end
-
-    subgraph Platform["Surgical Data Platform"]
-        SurgeonPipeline["Surgeon Preference Pipeline\nbuilt: version 1 complete"]
-        StockPipeline["Stock & Inventory Pipeline\nbuilt: local pipeline foundations"]
-        FuturePipelines["Future operational pipelines\nscheduling, trays, loan kits"]
-        Audit["Audit and traceability\nwhat changed, when, and why"]
-    end
-
-    subgraph Outputs["Useful outputs"]
-        PreferenceCards["Operational preference cards"]
-        Readiness["Theatre readiness view"]
-        Shortages["Shortage and substitution worklists"]
-        Reorders["Reorder and stock-risk actions"]
-        Analytics["Usage, cost, and improvement insights"]
-    end
-
-    Team --> PreferenceSource
-    Team --> StockSource
-    PreferenceSource --> SurgeonPipeline
-    StockSource --> StockPipeline
-    ScannerSource --> StockPipeline
-    SupplierSource --> StockPipeline
-    FutureSource --> FuturePipelines
-
-    SurgeonPipeline --> PreferenceCards
-    SurgeonPipeline --> Readiness
-    StockPipeline --> Readiness
-    StockPipeline --> Shortages
-    StockPipeline --> Reorders
-    StockPipeline --> Analytics
-    FuturePipelines --> Analytics
-
-    SurgeonPipeline --> Audit
-    StockPipeline --> Audit
-    FuturePipelines --> Audit
+    A --> B --> C --> D --> E --> F
+    D --> G
 
     classDef people fill:#FDE68A,stroke:#B45309,color:#111827,stroke-width:2px
     classDef source fill:#DBEAFE,stroke:#2563EB,color:#111827,stroke-width:2px
@@ -180,24 +150,24 @@ flowchart TB
     classDef output fill:#FCE7F3,stroke:#DB2777,color:#111827,stroke-width:2px
     classDef audit fill:#EDE9FE,stroke:#7C3AED,color:#111827,stroke-width:2px
 
-    class Team people
-    class PreferenceSource,StockSource,ScannerSource,SupplierSource,FutureSource source
-    class SurgeonPipeline,StockPipeline,FuturePipelines platform
-    class PreferenceCards,Readiness,Shortages,Reorders,Analytics output
-    class Audit audit
+    class A people
+    class B source
+    class C,D platform
+    class E,F output
+    class G audit
 ```
 
 Inside each pipeline, data moves through a simple "raw to ready" journey.
 
 ```mermaid
-flowchart LR
-    Landing["Landing\nsave the original file"]
-    Bronze["Bronze\nlog every raw record"]
-    Silver["Silver\nclean, match, and check"]
-    Gold["Gold\npublish useful outputs"]
-    Action["Action\nreview, prepare, reorder"]
+flowchart TB
+    A["Landing\nsave the original file"]
+    B["Bronze\nlog every raw record"]
+    C["Silver\nclean, match, and check"]
+    D["Gold\npublish useful outputs"]
+    E["Action\nreview, prepare, reorder"]
 
-    Landing --> Bronze --> Silver --> Gold --> Action
+    A --> B --> C --> D --> E
 
     classDef landing fill:#E0F2FE,stroke:#0284C7,color:#0F172A,stroke-width:2px
     classDef bronze fill:#FEF3C7,stroke:#D97706,color:#0F172A,stroke-width:2px
@@ -205,11 +175,11 @@ flowchart LR
     classDef gold fill:#FEF9C3,stroke:#CA8A04,color:#0F172A,stroke-width:2px
     classDef action fill:#DCFCE7,stroke:#16A34A,color:#0F172A,stroke-width:2px
 
-    class Landing landing
-    class Bronze bronze
-    class Silver silver
-    class Gold gold
-    class Action action
+    class A landing
+    class B bronze
+    class C silver
+    class D gold
+    class E action
 ```
 
 The technical name for this is a medallion pipeline:
@@ -228,35 +198,23 @@ keeping a record of where it came from.
 
 ```mermaid
 flowchart TB
-    Case["Upcoming theatre case"]
+    A["Upcoming theatre case"]
+    B["Surgeon Preference Pipeline\nwhat the case needs"]
+    C["Stock & Inventory Pipeline\nwhat is available"]
+    D["Readiness check"]
+    E["Ready"]
+    F["Check before use"]
+    G["Shortage"]
+    H["Substitution available"]
+    I["Reorder required"]
 
-    subgraph Preference["Surgeon Preference Pipeline"]
-        Needs["Expected procedure needs\ntrays, implants, consumables,\nsutures, dressings, notes"]
-        Cards["Gold preference cards"]
-    end
-
-    subgraph Inventory["Stock & Inventory Pipeline"]
-        Stock["Available stock\nlocations, lots, expiry,\nrecalls, reserved quantity"]
-        Rules["Substitution and reorder rules"]
-        Checks["Readiness checks"]
-    end
-
-    subgraph Decision["Theatre readiness decision"]
-        Ready["Ready"]
-        Check["Check before use"]
-        Shortage["Shortage"]
-        Substitute["Substitution available"]
-        Reorder["Reorder required"]
-    end
-
-    Case --> Needs --> Cards --> Checks
-    Stock --> Checks
-    Rules --> Checks
-    Checks --> Ready
-    Checks --> Check
-    Checks --> Shortage
-    Checks --> Substitute
-    Checks --> Reorder
+    A --> B --> D
+    A --> C --> D
+    D --> E
+    D --> F
+    D --> G
+    D --> H
+    D --> I
 
     classDef case fill:#FDE68A,stroke:#B45309,color:#111827,stroke-width:2px
     classDef pref fill:#DBEAFE,stroke:#2563EB,color:#111827,stroke-width:2px
@@ -266,13 +224,12 @@ flowchart TB
     classDef bad fill:#FECACA,stroke:#DC2626,color:#111827,stroke-width:2px
     classDef rule fill:#EDE9FE,stroke:#7C3AED,color:#111827,stroke-width:2px
 
-    class Case case
-    class Needs,Cards pref
-    class Stock,Checks inv
-    class Rules rule
-    class Ready good
-    class Check,Substitute,Reorder warn
-    class Shortage bad
+    class A case
+    class B pref
+    class C,D inv
+    class E good
+    class F,H,I warn
+    class G bad
 ```
 
 Example:
