@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from config.settings import load_settings
 from config.settings import ObjectStoreSettings
-from storage import object_store
 from storage.object_store import ObjectStoreClient, content_type_for, normalise_metadata, sha256_file
+from shared.storage import object_store
 
 
 def test_load_settings_uses_stock_inventory_defaults(monkeypatch):

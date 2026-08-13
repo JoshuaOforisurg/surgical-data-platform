@@ -1,19 +1,9 @@
-"""Compatibility imports for the platform shared object-store implementation."""
-
-import sys
-from pathlib import Path
-
-try:
-    import shared.storage.object_store  # noqa: F401
-except ModuleNotFoundError as exc:
-    if exc.name != "shared":
-        raise
-    platform_root = Path(__file__).resolve().parents[4]
-    sys.path.insert(0, str(platform_root))
+"""Provider-neutral object storage used by operational pipelines."""
 
 from shared.storage.object_store import (
     AzureBlobObjectStoreClient,
     ObjectStoreClient,
+    ObjectStoreSettings,
     S3ObjectStoreClient,
     bytes_from_text,
     content_type_for,
@@ -21,11 +11,10 @@ from shared.storage.object_store import (
     sha256_file,
 )
 
-_normalise_metadata = normalise_metadata
-
 __all__ = [
     "AzureBlobObjectStoreClient",
     "ObjectStoreClient",
+    "ObjectStoreSettings",
     "S3ObjectStoreClient",
     "bytes_from_text",
     "content_type_for",

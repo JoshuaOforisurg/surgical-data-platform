@@ -44,13 +44,17 @@ questions like:
 - Which stock items are short, expired, recalled, or awaiting sterilisation?
 - What can be substituted safely?
 - What needs reordering?
+- Which loan kits are required, confirmed, delivered, checked, and ready?
 - Which procedures create the most cost or shortage pressure?
 
 ---
 
 ## Current Progress
 
-Two operational pipelines have been built so far.
+Two operational pipelines have been built so far. A third, Loan Kit Management,
+is the proposed next pipeline because it connects case requirements and stock
+readiness with the supplier-managed equipment that must arrive for specific
+operations.
 
 ### 1. Surgeon Preference Pipeline
 
@@ -95,6 +99,9 @@ workflow:
 - review and publish workflow
 - audit history for access, review, and publishing decisions
 
+The pipeline is therefore functionally mature as a data product, while the
+remaining work is mainly product workflow, access control, and governance.
+
 ### 2. Stock & Inventory Management Pipeline
 
 **Status: Active build. Core local pipeline and dashboard foundations are now in place.**
@@ -120,9 +127,20 @@ The stock pipeline now includes:
 - quality gates and cloud-readiness checks
 - Docker and Container App Job scaffolding
 
-The current Stock & Inventory work is local-first. The next milestone is to
-harden the end-to-end run, then follow the Azure deployment pattern already
-proven by the Surgeon Preference pipeline.
+The complete local test suite passes, and the core Azure resources and container
+workloads have been created. Cloud hardening is still in progress: persistent
+Blob and Postgres configuration, migration execution, managed identities,
+end-to-end output verification, and dashboard validation remain before the
+Azure deployment should be treated as complete.
+
+### Shared Platform Foundation
+
+The two pipelines now use a shared provider-neutral object-storage layer under
+`platform/shared/storage`. It supports local S3/MinIO and Azure Blob Storage
+while preserving each pipeline's existing import paths. This is the first
+deliberate extraction of duplicated infrastructure into a reusable platform
+capability. The shared storage tests and both complete pipeline test suites pass;
+Docker image verification remains the final environment-level check.
 
 ---
 
@@ -243,6 +261,89 @@ Example:
 
 This is the central direction of the platform: connected operational pipelines
 that help theatre teams prepare earlier and act with better information.
+
+---
+
+## Proposed Next Pipeline: Loan Kit Management
+
+**Status: Proposed and scoped; implementation has not started.**
+
+A loan kit is a supplier-owned set of instruments, implants, trials, or related
+equipment brought into a hospital for a particular procedure or operating list.
+Unlike ordinary stock, a loan kit has a time-critical journey across the
+hospital and supplier boundary: request, confirmation, dispatch, receipt,
+contents check, decontamination or sterilisation, case allocation, use,
+reconciliation, and return.
+
+The proposed pipeline would combine:
+
+- scheduled case and theatre-list information
+- surgeon preference requirements
+- requested kit, implant system, component, and size information
+- supplier booking, confirmation, dispatch, and delivery events
+- goods-received and contents-check records
+- decontamination and sterilisation status
+- case allocation and readiness decisions
+- implants or components used, opened, missing, damaged, or unused
+- collection, return, discrepancy, charge, and credit records
+
+It would turn those events into a traceable status for every kit and case, with
+clear ownership, deadlines, exceptions, and escalation worklists.
+
+### Why This Pipeline Is Important
+
+Loan kits sit at a difficult operational boundary. Theatre teams depend on them,
+but the hospital does not control the whole supply chain. Information is often
+spread across booking forms, emails, phone calls, theatre lists, supplier
+systems, goods-received notes, decontamination records, and local spreadsheets.
+A kit can be described as "booked" while still being unconfirmed, incomplete,
+late, unchecked, unsterile, assigned to another case, or awaiting collection.
+
+That uncertainty can cause avoidable list disruption, last-minute escalation,
+procedure delays or cancellations, duplicate bookings, missing components,
+unrecorded implant use, return disputes, and unnecessary charges. A dedicated
+pipeline matters because ordinary inventory balances cannot represent this
+time-sensitive chain of custody and responsibility.
+
+The pipeline would connect the platform's two existing products:
+
+1. Surgeon Preference identifies the kit or implant system a case requires.
+2. Stock & Inventory determines what the hospital already holds and whether a
+   safe substitute is available.
+3. Loan Kit Management tracks the externally supplied kit from request through
+   return when hospital stock cannot meet that requirement.
+
+### Questions The Pipeline Will Answer
+
+For upcoming cases and theatre teams:
+
+- Which cases require a loan kit, and exactly which kit or implant system?
+- Has the request been sent, accepted, and confirmed by the supplier?
+- What is the delivery deadline after allowing enough time for checking and
+  sterilisation?
+- Has the correct kit arrived at the correct hospital for the correct case?
+- Are all trays, instruments, implants, trials, sizes, and consumables present?
+- Is the kit checked, decontaminated, sterile, and released for use?
+- Is any case at risk because a kit is late, incomplete, damaged, or unconfirmed?
+- Who owns the next action, and when should it be escalated?
+
+For procurement, suppliers, and governance:
+
+- Which kits are currently on site, in use, awaiting processing, or overdue for
+  return?
+- What was used or opened, and does that agree with the supplier record?
+- Are any components missing, damaged, substituted, or disputed?
+- Which suppliers, specialties, procedures, or sites create the most delays and
+  exceptions?
+- How often are kits booked but unused, duplicated, delivered late, or returned
+  late?
+- What charges, credits, cancellations, and avoidable costs are associated with
+  each kit and case?
+- Can the full chain of custody and decision history be reconstructed for audit?
+
+The first useful release would focus on booking, milestones, readiness, alerts,
+and return reconciliation. Predictive supplier performance and demand planning
+would come later, after the operational event history is reliable.
 
 ---
 
@@ -385,12 +486,13 @@ Near-term focus:
 - improve the Stock & Inventory dashboard
 - add stronger quality gates and run checks
 - prepare Stock & Inventory for Azure deployment
+- design and build the Loan Kit Management MVP
 
 Medium-term focus:
 
 - add case scheduling data
 - add instrument and tray tracking
-- add loan kit management
+- extend loan kit data into supplier-performance and cost analytics
 - add theatre utilisation and turnaround-time analytics
 - create clearer operational runbooks
 - introduce stronger governance and role-based access
