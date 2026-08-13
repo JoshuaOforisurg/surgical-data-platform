@@ -478,33 +478,53 @@ while keeping the project safe.
 
 ## Roadmap
 
-Near-term focus:
+### Foundations Completed
 
-- finish Surgeon Preference Version 2 access and review workflow
-- harden Stock & Inventory as a complete local medallion pipeline
-- connect Surgeon Preference demand to Stock & Inventory readiness outputs
-- improve the Stock & Inventory dashboard
-- add stronger quality gates and run checks
-- prepare Stock & Inventory for Azure deployment
-- design and build the Loan Kit Management MVP
+- build Surgeon Preference Version 1 as a local and Azure-capable data product
+- build the Stock & Inventory local medallion pipeline, dashboard foundations,
+  quality gates, metadata layer, and cloud deployment scaffolding
+- connect stock readiness logic to Surgeon Preference demand outputs
+- support local MinIO and Azure Blob Storage through one shared storage layer
+- establish automated tests for the shared layer and both operational pipelines
 
-Medium-term focus:
+### Current Priorities
 
-- add case scheduling data
-- add instrument and tray tracking
-- extend loan kit data into supplier-performance and cost analytics
-- add theatre utilisation and turnaround-time analytics
-- create clearer operational runbooks
-- introduce stronger governance and role-based access
+- complete Stock & Inventory Azure hardening, including persistent Blob and
+  Postgres configuration, migrations, managed identities, and end-to-end checks
+- validate the deployed Stock & Inventory dashboard and published Gold outputs
+- finish Surgeon Preference Version 2 access, draft, review, publish, and audit
+  workflows
+- strengthen cross-pipeline contracts, operational runbooks, monitoring, and
+  deployment checks
+- complete Docker image verification for both pipelines
 
-Long-term direction:
+### Next Operational Pipeline
 
+Build the Loan Kit Management MVP in stages:
+
+1. Define case, kit, supplier, booking, delivery, contents, sterilisation,
+   allocation, use, and return data contracts.
+2. Generate realistic synthetic source data and exception scenarios.
+3. Build Landing, Bronze, Silver, and Gold processing with audit metadata and
+   quality gates.
+4. Connect Surgeon Preference requirements and Stock & Inventory availability
+   to loan-kit decisions.
+5. Publish readiness, late-delivery, incomplete-kit, action-owner, and overdue-
+   return worklists through an operational dashboard.
+6. Add supplier-performance, utilisation, discrepancy, and cost reporting after
+   the core workflow is reliable.
+
+### Later Platform Expansion
+
+- add case scheduling plus instrument and tray tracking
+- add theatre utilisation, turnaround-time, cancellation, delay, and cost-per-
+  case analytics
+- introduce stronger platform-wide governance and role-based access
+- add Infrastructure-as-Code for repeatable environments
 - connect to hospital-style systems through FHIR, HL7, ERP, vendor, and device
   integrations
-- add Infrastructure-as-Code for repeatable environments
-- build advanced analytics and prediction layers
-- create AI-ready training datasets only after governance and safety controls
-  are mature
+- build prediction and AI-ready datasets only after operational data quality,
+  governance, and clinical safety controls are mature
 
 ---
 
