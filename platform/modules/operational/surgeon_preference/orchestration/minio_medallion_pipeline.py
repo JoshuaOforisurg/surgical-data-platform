@@ -22,6 +22,7 @@ from config.pipeline_version import (
 from config.settings import PipelineSettings
 from gold_cleaned.clinical_analytics import ClinicalGoldAnalytics
 from gold_cleaned.operational_preference_card import OperationalPreferenceGoldBuilder
+from orchestration.run_identity import new_run_id
 from silver_transform.silver_a.file_format_reader import FileReader
 from silver_transform.silver_a.silver_a_transformer import SilverTransformer
 from silver_transform.silver_b.silver_b_batch_enricher import SilverBBatchEnricher
@@ -42,7 +43,7 @@ class MinIOMedallionPipeline:
         self.analytics_gold = ClinicalGoldAnalytics()
 
     def run(self, source_path: Path) -> Dict[str, Any]:
-        run_id = datetime.now(UTC).strftime("run_%Y%m%d_%H%M%S")
+        run_id = new_run_id()
         source_path = Path(source_path)
         LOGGER.info("Starting surgeon preference pipeline run_id=%s source=%s", run_id, source_path)
 
