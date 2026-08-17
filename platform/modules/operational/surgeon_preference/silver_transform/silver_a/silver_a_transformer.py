@@ -242,18 +242,29 @@ class SilverTransformer:
     # -----------------------------
     # EXECUTION PIPELINES
     # -----------------------------
-    def transform_records(self, bronze_data: List[Dict[str, Any]]):
+    def transform_records(
+        self,
+        bronze_data: List[Dict[str, Any]],
+        run_id: str | None = None,
+    ):
         cleaned_rows = []
         for record in bronze_data:
             row = self.flatten_card({"metadata": {}, "content": record})
             cleaned_rows.append(row)
-        self.write_silver_a(cleaned_rows)
+        self.write_silver_a(cleaned_rows, run_id=run_id)
         return cleaned_rows
 
-    def write_silver_a(self, cleaned_rows: List[Dict[str, Any]]):
+    def write_silver_a(
+        self,
+        cleaned_rows: List[Dict[str, Any]],
+        run_id: str | None = None,
+    ) -> Path:
         if not cleaned_rows:
             raise ValueError("Silver-A produced no rows")
-        output_file = self.silver_a_dir / "silver_a_cleaned.jsonl"
+        output_dir = self.silver_a_dir / "runs" / run_id if run_id else self.silver_a_dir
+        output_dir.mkdir(parents=True, exist_ok=True)
+        output_file = output_dir / "silver_a_cleaned.jsonl"
         with output_file.open("w", encoding="utf-8") as f:
             for row in cleaned_rows:
                 f.write(json.dumps(row) + "\n")
+        return output_file

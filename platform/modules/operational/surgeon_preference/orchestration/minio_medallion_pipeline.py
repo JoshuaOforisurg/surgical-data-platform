@@ -76,8 +76,14 @@ class MinIOMedallionPipeline:
 
             LOGGER.info("Bronze extraction complete records=%s", len(all_raw_records))
 
-            silver_a_records = self.silver_a.transform_records(all_raw_records)
-            silver_b_records = self.silver_b.process(silver_a_records)
+            silver_a_records = self.silver_a.transform_records(
+                all_raw_records,
+                run_id=run_id,
+            )
+            silver_b_records = self.silver_b.process(
+                silver_a_records,
+                run_id=run_id,
+            )
 
             operational = self.operational_gold.build_and_write(silver_b_records)
             analytics_report = self.analytics_gold.full_report(silver_b_records)

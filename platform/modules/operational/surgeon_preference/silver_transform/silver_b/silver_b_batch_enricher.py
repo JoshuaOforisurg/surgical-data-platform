@@ -8,9 +8,16 @@ from config.paths import SILVER_B_DIR, SILVER_A_DIR
 
 
 class SilverBBatchEnricher:
-    def __init__(self, log_enabled: bool = True):
+    def __init__(
+        self,
+        log_enabled: bool = True,
+        silver_a_dir: Path = SILVER_A_DIR,
+        silver_b_dir: Path = SILVER_B_DIR,
+    ):
         self.engine = ClinicalEnrichmentEngine()
         self.log_enabled = log_enabled
+        self.silver_a_dir = Path(silver_a_dir)
+        self.silver_b_dir = Path(silver_b_dir)
 
         # Runtime metrics updated to track quarantine counts
         self.stats = {
@@ -27,9 +34,16 @@ class SilverBBatchEnricher:
         if self.log_enabled:
             print(f"[Silver-B Batch] {message}")
 
-    def _save_silver_a_input(self, records: List[Dict[str, Any]]) -> None:
+    def _save_silver_a_input(
+        self,
+        records: List[Dict[str, Any]],
+        run_id: str | None = None,
+    ) -> None:
         try:
-            silver_a_file = SILVER_A_DIR / "silver_a_input.jsonl"
+            output_dir = (
+                self.silver_a_dir / "runs" / run_id if run_id else self.silver_a_dir
+            )
+            silver_a_file = output_dir / "silver_a_input.jsonl"
             silver_a_file.parent.mkdir(parents=True, exist_ok=True)
             with open(silver_a_file, "w", encoding="utf-8") as f:
                 for record in records:
@@ -78,7 +92,11 @@ class SilverBBatchEnricher:
                 },
             }
 
-    def process(self, records: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    def process(
+        self,
+        records: List[Dict[str, Any]],
+        run_id: str | None = None,
+    ) -> List[Dict[str, Any]]:
         self.stats.update({
             "total_records": len(records),
             "successful": 0,
@@ -89,7 +107,7 @@ class SilverBBatchEnricher:
         })
 
         self._log(f"Starting batch enrichment for {len(records)} records")
-        self._save_silver_a_input(records)
+        self._save_silver_a_input(records, run_id=run_id)
 
         enriched_records = []
         confidence_sum = 0.0
@@ -120,17 +138,24 @@ class SilverBBatchEnricher:
         )
 
         # Route and save the final files based on corruption status
-        self._save_split_records(enriched_records)
+        self._save_split_records(enriched_records, run_id=run_id)
 
         return enriched_records
 
-    def _save_split_records(self, records: List[Dict[str, Any]]) -> None:
+    def _save_split_records(
+        self,
+        records: List[Dict[str, Any]],
+        run_id: str | None = None,
+    ) -> None:
         """Splits output into production-ready data and a separate quarantine stream."""
         try:
-            SILVER_B_DIR.mkdir(parents=True, exist_ok=True)
+            output_dir = (
+                self.silver_b_dir / "runs" / run_id if run_id else self.silver_b_dir
+            )
+            output_dir.mkdir(parents=True, exist_ok=True)
 
-            clean_file = SILVER_B_DIR / "silver_b_enriched.jsonl"
-            quarantine_file = SILVER_B_DIR / "silver_b_quarantine.jsonl"
+            clean_file = output_dir / "silver_b_enriched.jsonl"
+            quarantine_file = output_dir / "silver_b_quarantine.jsonl"
 
             with open(clean_file, "w", encoding="utf-8") as clean_out, \
                     open(quarantine_file, "w", encoding="utf-8") as quarantine_out:
