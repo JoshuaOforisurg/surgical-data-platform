@@ -261,10 +261,13 @@ class SilverTransformer:
     ) -> Path:
         if not cleaned_rows:
             raise ValueError("Silver-A produced no rows")
-        output_dir = self.silver_a_dir / "runs" / run_id if run_id else self.silver_a_dir
-        output_dir.mkdir(parents=True, exist_ok=True)
-        output_file = output_dir / "silver_a_cleaned.jsonl"
+        output_file = self.output_path(run_id)
+        output_file.parent.mkdir(parents=True, exist_ok=True)
         with output_file.open("w", encoding="utf-8") as f:
             for row in cleaned_rows:
                 f.write(json.dumps(row) + "\n")
         return output_file
+
+    def output_path(self, run_id: str | None = None) -> Path:
+        output_dir = self.silver_a_dir / "runs" / run_id if run_id else self.silver_a_dir
+        return output_dir / "silver_a_cleaned.jsonl"

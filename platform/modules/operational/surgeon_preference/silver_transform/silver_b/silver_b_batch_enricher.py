@@ -149,13 +149,10 @@ class SilverBBatchEnricher:
     ) -> None:
         """Splits output into production-ready data and a separate quarantine stream."""
         try:
-            output_dir = (
-                self.silver_b_dir / "runs" / run_id if run_id else self.silver_b_dir
-            )
-            output_dir.mkdir(parents=True, exist_ok=True)
-
-            clean_file = output_dir / "silver_b_enriched.jsonl"
-            quarantine_file = output_dir / "silver_b_quarantine.jsonl"
+            output_paths = self.output_paths(run_id)
+            clean_file = output_paths["clean"]
+            quarantine_file = output_paths["quarantine"]
+            clean_file.parent.mkdir(parents=True, exist_ok=True)
 
             with open(clean_file, "w", encoding="utf-8") as clean_out, \
                     open(quarantine_file, "w", encoding="utf-8") as quarantine_out:
@@ -171,6 +168,13 @@ class SilverBBatchEnricher:
 
         except Exception as e:
             self._log(f"Failed to save split Silver-B files: {str(e)}")
+
+    def output_paths(self, run_id: str | None = None) -> Dict[str, Path]:
+        output_dir = self.silver_b_dir / "runs" / run_id if run_id else self.silver_b_dir
+        return {
+            "clean": output_dir / "silver_b_enriched.jsonl",
+            "quarantine": output_dir / "silver_b_quarantine.jsonl",
+        }
 
     def get_stats(self) -> Dict[str, Any]:
         return self.stats

@@ -84,6 +84,7 @@ class MinIOMedallionPipeline:
                 silver_a_records,
                 run_id=run_id,
             )
+            silver_keys = self._publish_silver(run_id)
 
             operational = self.operational_gold.build_and_write(silver_b_records)
             analytics_report = self.analytics_gold.full_report(silver_b_records)
@@ -93,6 +94,7 @@ class MinIOMedallionPipeline:
                 run_id=run_id,
                 landed_files=landed_files,
                 records_processed=len(all_raw_records),
+                silver_keys=silver_keys,
                 gold_keys=gold_keys,
             )
 
@@ -122,6 +124,7 @@ class MinIOMedallionPipeline:
                 "analytics_data_product_version": ANALYTICS_DATA_PRODUCT_VERSION,
                 "files_landed": len(landed_files),
                 "records_processed": len(all_raw_records),
+                "silver_keys": silver_keys,
                 "gold_keys": gold_keys,
             }
 
@@ -301,11 +304,56 @@ class MinIOMedallionPipeline:
 
         return keys
 
+    def _publish_silver(self, run_id: str) -> Dict[str, str]:
+        silver_prefix = self.settings.minio.silver_prefix
+        silver_b_paths = self.silver_b.output_paths(run_id)
+        artifacts = {
+            "silver_a_cleaned": (
+                self.silver_a.output_path(run_id),
+                f"{silver_prefix}/a/runs/{run_id}/silver_a_cleaned.jsonl",
+            ),
+            "silver_b_enriched": (
+                silver_b_paths["clean"],
+                f"{silver_prefix}/b/runs/{run_id}/silver_b_enriched.jsonl",
+            ),
+            "silver_b_quarantine": (
+                silver_b_paths["quarantine"],
+                f"{silver_prefix}/b/runs/{run_id}/silver_b_quarantine.jsonl",
+            ),
+        }
+
+        keys: Dict[str, str] = {}
+        for artifact_type, (local_path, object_key) in artifacts.items():
+            object_uri = self.object_store.upload_file(
+                local_path,
+                object_key,
+                content_type="application/x-ndjson",
+                metadata={"run-id": run_id, "artifact-type": artifact_type},
+            )
+            self.catalog.register_object(
+                {
+                    "run_id": run_id,
+                    "bucket": self.object_store.bucket,
+                    "object_key": object_key,
+                    "object_uri": object_uri,
+                    "layer": "silver",
+                    "artifact_type": artifact_type,
+                    "content_type": "application/x-ndjson",
+                    "size_bytes": local_path.stat().st_size,
+                    "checksum_sha256": sha256_file(local_path),
+                    "source_filename": local_path.name,
+                }
+            )
+            keys[artifact_type] = object_key
+
+        return keys
+
     def _publish_run_manifest(
         self,
         run_id: str,
         landed_files: List[Dict[str, Any]],
         records_processed: int,
+        silver_keys: Dict[str, str],
         gold_keys: Dict[str, str],
     ) -> None:
         manifest = {
@@ -326,6 +374,7 @@ class MinIOMedallionPipeline:
                 for item in landed_files
             ],
             "records_processed": records_processed,
+            "silver_keys": silver_keys,
             "gold_keys": gold_keys,
         }
         key = f"{self.settings.minio.bronze_prefix}/manifests/{run_id}.json"
