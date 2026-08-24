@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/contracts/loan-kit-event/1.0.0",
+  "title": "Loan Kit Workflow Event",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id", "kit_request_id", "case_id", "event_type",
+    "occurred_at", "actor_role", "source_system"
+  ],
+  "properties": {
+    "event_id": {"type": "string", "minLength": 1},
+    "kit_request_id": {"type": "string", "minLength": 1},
+    "case_id": {"type": "string", "minLength": 1},
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "request_submitted", "request_approved", "supplier_confirmed",
+        "delivery_received", "receipt_check_completed", "ssd_handover",
+        "ssd_released", "theatre_check_completed", "kit_used",
+        "usage_reconciled", "return_prepared", "supplier_collected",
+        "workflow_closed"
+      ]
+    },
+    "occurred_at": {"type": "string", "format": "date-time"},
+    "actor_role": {"type": "string", "minLength": 1},
+    "source_system": {"type": "string", "minLength": 1},
+    "required_by": {"type": ["string", "null"], "format": "date-time"},
+    "supplier_id": {"type": ["string", "null"]},
+    "check_result": {"type": ["string", "null"], "enum": ["pass", "fail", null]},
+    "packaging_integrity_passed": {"type": ["boolean", "null"]},
+    "sterility_indicator_passed": {"type": ["boolean", "null"]},
+    "contents_verified": {"type": ["boolean", "null"]},
+    "details": {"type": ["string", "null"]}
+  }
+}

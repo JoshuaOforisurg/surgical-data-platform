@@ -1,0 +1,19 @@
+event_id,kit_request_id,case_id,event_type,occurred_at,actor_role,source_system,required_by,supplier_id,check_result,packaging_integrity_passed,sterility_indicator_passed,contents_verified,details
+EVT-001,LKR-001,CASE-SYN-001,request_submitted,2026-09-01T09:00:00+01:00,surgeon,synthetic_request_form,2026-09-22T08:00:00+01:00,,,,,,Specialist orthopaedic loan set
+EVT-002,LKR-001,CASE-SYN-001,request_approved,2026-09-01T12:00:00+01:00,theatre_team_leader,synthetic_approval_log,2026-09-22T08:00:00+01:00,,,,,,Approved synthetic request
+EVT-003,LKR-001,CASE-SYN-001,supplier_confirmed,2026-09-02T10:00:00+01:00,instrument_coordinator,synthetic_supplier_log,2026-09-22T08:00:00+01:00,SUP-SYN-01,,,,,Availability confirmed
+EVT-004,LKR-001,CASE-SYN-001,delivery_received,2026-09-18T10:30:00+01:00,theatre_reception,synthetic_receipt_log,2026-09-22T08:00:00+01:00,SUP-SYN-01,,,,,Three trays received
+EVT-005,LKR-001,CASE-SYN-001,receipt_check_completed,2026-09-18T11:15:00+01:00,theatre_practitioner,synthetic_checklist,2026-09-22T08:00:00+01:00,SUP-SYN-01,pass,,,true,Manifest and condition checked
+EVT-006,LKR-001,CASE-SYN-001,ssd_handover,2026-09-18T13:00:00+01:00,theatre_practitioner,synthetic_handover_log,2026-09-22T08:00:00+01:00,SUP-SYN-01,,,,,Cleaning instructions attached
+EVT-007,LKR-001,CASE-SYN-001,ssd_released,2026-09-21T15:00:00+01:00,ssd_release_authority,synthetic_ssd_log,2026-09-22T08:00:00+01:00,SUP-SYN-01,pass,,,,SSD cycle and release recorded
+EVT-008,LKR-001,CASE-SYN-001,theatre_check_completed,2026-09-22T07:00:00+01:00,theatre_practitioner,synthetic_theatre_check,2026-09-22T08:00:00+01:00,SUP-SYN-01,pass,true,true,true,Final pre-use checks explicitly passed
+EVT-009,LKR-001,CASE-SYN-001,kit_used,2026-09-22T10:00:00+01:00,scrub_practitioner,synthetic_case_log,2026-09-22T08:00:00+01:00,SUP-SYN-01,,,,,Kit recorded as used
+EVT-010,LKR-001,CASE-SYN-001,usage_reconciled,2026-09-22T12:30:00+01:00,scrub_practitioner,synthetic_usage_log,2026-09-22T08:00:00+01:00,SUP-SYN-01,pass,,,,No discrepancy recorded
+EVT-011,LKR-001,CASE-SYN-001,return_prepared,2026-09-22T14:00:00+01:00,theatre_practitioner,synthetic_return_log,2026-09-22T08:00:00+01:00,SUP-SYN-01,pass,,,true,Return manifest checked
+EVT-012,LKR-001,CASE-SYN-001,supplier_collected,2026-09-23T10:00:00+01:00,instrument_coordinator,synthetic_collection_log,2026-09-22T08:00:00+01:00,SUP-SYN-01,,,,,Collection recorded
+EVT-013,LKR-001,CASE-SYN-001,workflow_closed,2026-09-24T09:00:00+01:00,instrument_coordinator,synthetic_closure_log,2026-09-22T08:00:00+01:00,SUP-SYN-01,,,,,Operational workflow closed
+EVT-101,LKR-002,CASE-SYN-002,request_submitted,2026-09-10T09:00:00+01:00,surgeon,synthetic_request_form,2026-09-18T08:00:00+01:00,,,,,,Late specialist kit request
+EVT-102,LKR-002,CASE-SYN-002,supplier_confirmed,2026-09-11T12:00:00+01:00,instrument_coordinator,synthetic_supplier_log,2026-09-18T08:00:00+01:00,SUP-SYN-02,,,,,Supplier confirmed
+EVT-103,LKR-002,CASE-SYN-002,delivery_received,2026-09-17T15:00:00+01:00,theatre_reception,synthetic_receipt_log,2026-09-18T08:00:00+01:00,SUP-SYN-02,,,,,Delivery received
+EVT-104,LKR-002,CASE-SYN-002,receipt_check_completed,2026-09-17T15:30:00+01:00,theatre_practitioner,synthetic_checklist,2026-09-18T08:00:00+01:00,SUP-SYN-02,fail,,,false,One required instrument missing
+EVT-105,LKR-002,CASE-SYN-002,ssd_handover,2026-09-17T16:00:00+01:00,theatre_practitioner,synthetic_handover_log,2026-09-18T08:00:00+01:00,SUP-SYN-02,,,,,Transferred with open discrepancy

@@ -1,0 +1,11 @@
+{
+  "config_version": "1.0.0",
+  "minimum_request_lead_days": 14,
+  "near_due_threshold_hours": 48,
+  "required_readiness_checks": [
+    "ssd_released",
+    "packaging_integrity_passed",
+    "sterility_indicator_passed",
+    "contents_verified"
+  ]
+}

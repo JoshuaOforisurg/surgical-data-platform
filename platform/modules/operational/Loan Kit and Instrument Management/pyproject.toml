@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "loan-kit-pipeline"
+version = "0.1.0"
+description = "Synthetic-first workflow evidence pipeline for surgical loan kits"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [{name = "Joshua Ofori"}]
+dependencies = []
+
+[project.scripts]
+loan-kit-pipeline = "loan_kit_pipeline.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
