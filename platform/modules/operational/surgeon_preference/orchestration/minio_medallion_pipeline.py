@@ -20,6 +20,7 @@ from config.pipeline_version import (
     PIPELINE_VERSION,
 )
 from config.settings import PipelineSettings
+from contracts import validate_silver_to_gold_records
 from gold_cleaned.clinical_analytics import ClinicalGoldAnalytics
 from gold_cleaned.operational_preference_card import OperationalPreferenceGoldBuilder
 from orchestration.run_identity import new_run_id
@@ -90,6 +91,7 @@ class MinIOMedallionPipeline:
                 self.silver_b.get_stats(),
                 output_record_count=len(silver_b_records),
             )
+            contract_summary = validate_silver_to_gold_records(silver_b_records)
 
             operational = self.operational_gold.build_and_write(silver_b_records)
             analytics_report = self.analytics_gold.full_report(silver_b_records)
@@ -102,6 +104,7 @@ class MinIOMedallionPipeline:
                 silver_keys=silver_keys,
                 gold_keys=gold_keys,
                 quality_summary=quality_summary,
+                contract_summary=contract_summary,
             )
 
             self.catalog.complete_run(
@@ -131,6 +134,7 @@ class MinIOMedallionPipeline:
                 "files_landed": len(landed_files),
                 "records_processed": len(all_raw_records),
                 "quality_summary": quality_summary,
+                "contract_summary": contract_summary,
                 "silver_keys": silver_keys,
                 "gold_keys": gold_keys,
             }
@@ -363,6 +367,7 @@ class MinIOMedallionPipeline:
         silver_keys: Dict[str, str],
         gold_keys: Dict[str, str],
         quality_summary: Dict[str, Any],
+        contract_summary: Dict[str, Any],
     ) -> None:
         manifest = {
             "run_id": run_id,
@@ -383,6 +388,7 @@ class MinIOMedallionPipeline:
             ],
             "records_processed": records_processed,
             "quality_summary": quality_summary,
+            "contract_summary": contract_summary,
             "silver_keys": silver_keys,
             "gold_keys": gold_keys,
         }

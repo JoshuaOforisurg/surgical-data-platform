@@ -235,6 +235,77 @@ class BronzeCatalogRepository:
                 created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
             )
             """,
+            """
+            CREATE TABLE IF NOT EXISTS app_workflow.preference_cards (
+                card_id UUID PRIMARY KEY,
+                organisation_id TEXT NOT NULL REFERENCES app_workflow.organisations(organisation_id),
+                card_key TEXT NOT NULL,
+                surgeon_id TEXT,
+                surgeon_name TEXT NOT NULL,
+                procedure_id TEXT,
+                procedure_name TEXT NOT NULL,
+                specialty TEXT,
+                subspecialty TEXT,
+                current_version_number INTEGER NOT NULL DEFAULT 1,
+                current_version_id UUID,
+                status TEXT NOT NULL DEFAULT 'active',
+                source_gold_key TEXT,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (organisation_id, card_key)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS app_workflow.preference_card_versions (
+                version_id UUID PRIMARY KEY,
+                card_id UUID NOT NULL REFERENCES app_workflow.preference_cards(card_id),
+                organisation_id TEXT NOT NULL REFERENCES app_workflow.organisations(organisation_id),
+                version_number INTEGER NOT NULL,
+                version_label TEXT,
+                card_payload JSONB NOT NULL,
+                source_gold_key TEXT,
+                published_by TEXT,
+                published_at TIMESTAMPTZ,
+                is_current BOOLEAN NOT NULL DEFAULT false,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (card_id, version_number)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS app_workflow.preference_card_drafts (
+                draft_id TEXT PRIMARY KEY,
+                organisation_id TEXT NOT NULL REFERENCES app_workflow.organisations(organisation_id),
+                card_id UUID REFERENCES app_workflow.preference_cards(card_id),
+                draft_type TEXT NOT NULL,
+                status TEXT NOT NULL,
+                original_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+                proposed_payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+                submitted_by_email TEXT,
+                submitted_by_name TEXT,
+                reviewed_by_email TEXT,
+                reviewed_at TIMESTAMPTZ,
+                published_at TIMESTAMPTZ,
+                object_key TEXT,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS app_workflow.preference_card_publish_events (
+                publish_id UUID PRIMARY KEY,
+                organisation_id TEXT NOT NULL REFERENCES app_workflow.organisations(organisation_id),
+                card_id UUID REFERENCES app_workflow.preference_cards(card_id),
+                version_id UUID REFERENCES app_workflow.preference_card_versions(version_id),
+                draft_id TEXT,
+                publisher_email TEXT,
+                publisher_name TEXT,
+                published_gold_key TEXT,
+                latest_gold_key TEXT,
+                event_payload JSONB NOT NULL,
+                published_at TIMESTAMPTZ NOT NULL,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+            """,
             "ALTER TABLE pipeline_audit.pipeline_runs ADD COLUMN IF NOT EXISTS pipeline_version TEXT",
             "ALTER TABLE pipeline_audit.pipeline_runs ADD COLUMN IF NOT EXISTS data_product_version TEXT",
             "ALTER TABLE metadata_catalog.gold_artifacts ADD COLUMN IF NOT EXISTS schema_version TEXT",
@@ -265,9 +336,13 @@ class BronzeCatalogRepository:
             ),
             "ALTER TABLE app_workflow.draft_reviews ADD COLUMN IF NOT EXISTS blob_review_key TEXT",
             (
-                "ALTER TABLE app_workflow.audit_events ADD COLUMN IF NOT EXISTS "
+            "ALTER TABLE app_workflow.audit_events ADD COLUMN IF NOT EXISTS "
                 "organisation_id TEXT REFERENCES app_workflow.organisations(organisation_id)"
             ),
+            "ALTER TABLE app_workflow.preference_cards ADD COLUMN IF NOT EXISTS current_version_id UUID",
+            "ALTER TABLE app_workflow.preference_cards ADD COLUMN IF NOT EXISTS source_gold_key TEXT",
+            "ALTER TABLE app_workflow.preference_card_versions ADD COLUMN IF NOT EXISTS source_gold_key TEXT",
+            "ALTER TABLE app_workflow.preference_card_drafts ADD COLUMN IF NOT EXISTS object_key TEXT",
             (
                 "UPDATE app_workflow.app_users "
                 "SET default_organisation_id = 'default' "
@@ -313,6 +388,13 @@ class BronzeCatalogRepository:
             "CREATE INDEX IF NOT EXISTS idx_audit_events_org ON app_workflow.audit_events(organisation_id)",
             "CREATE INDEX IF NOT EXISTS idx_audit_events_entity ON app_workflow.audit_events(entity_type, entity_id)",
             "CREATE INDEX IF NOT EXISTS idx_audit_events_actor ON app_workflow.audit_events(actor_email)",
+            "CREATE INDEX IF NOT EXISTS idx_preference_cards_org ON app_workflow.preference_cards(organisation_id)",
+            "CREATE INDEX IF NOT EXISTS idx_preference_cards_surgeon ON app_workflow.preference_cards(surgeon_name)",
+            "CREATE INDEX IF NOT EXISTS idx_preference_cards_procedure ON app_workflow.preference_cards(procedure_name)",
+            "CREATE INDEX IF NOT EXISTS idx_preference_card_versions_card ON app_workflow.preference_card_versions(card_id)",
+            "CREATE INDEX IF NOT EXISTS idx_preference_card_versions_current ON app_workflow.preference_card_versions(organisation_id, is_current)",
+            "CREATE INDEX IF NOT EXISTS idx_preference_card_drafts_org_status ON app_workflow.preference_card_drafts(organisation_id, status)",
+            "CREATE INDEX IF NOT EXISTS idx_preference_card_publish_events_org ON app_workflow.preference_card_publish_events(organisation_id)",
         ]
 
         with psycopg2.connect(self.settings.psycopg2_dsn) as conn:
@@ -338,6 +420,10 @@ class BronzeCatalogRepository:
                 "access_requests",
                 "draft_reviews",
                 "audit_events",
+                "preference_cards",
+                "preference_card_versions",
+                "preference_card_drafts",
+                "preference_card_publish_events",
             ],
         }
         expected_columns = {
@@ -457,6 +543,44 @@ class BronzeCatalogRepository:
                 "entity_id",
                 "event_payload",
                 "created_at",
+            ],
+            ("app_workflow", "preference_cards"): [
+                "card_id",
+                "organisation_id",
+                "card_key",
+                "surgeon_name",
+                "procedure_name",
+                "current_version_number",
+                "current_version_id",
+                "status",
+                "source_gold_key",
+            ],
+            ("app_workflow", "preference_card_versions"): [
+                "version_id",
+                "card_id",
+                "organisation_id",
+                "version_number",
+                "card_payload",
+                "source_gold_key",
+                "is_current",
+            ],
+            ("app_workflow", "preference_card_drafts"): [
+                "draft_id",
+                "organisation_id",
+                "draft_type",
+                "status",
+                "original_payload",
+                "proposed_payload",
+                "object_key",
+            ],
+            ("app_workflow", "preference_card_publish_events"): [
+                "publish_id",
+                "organisation_id",
+                "card_id",
+                "version_id",
+                "draft_id",
+                "event_payload",
+                "published_at",
             ],
         }
 

@@ -49,6 +49,7 @@ from streamlit_services.publishing_service import (
     save_publish_event,
     save_published_gold,
 )
+from streamlit_services.product_readiness_service import build_product_readiness_summary
 from streamlit_services.streamlit_service import get_storage_client
 from streamlit_services.user_registry_service import (
     list_access_requests,
@@ -60,6 +61,7 @@ from streamlit_services.user_registry_service import (
 
 
 GOLD_OPERATIONAL_KEY = "gold/operational/latest/gold_operational_preference_cards.csv"
+RUN_MANIFEST_PREFIX = "bronze/manifests"
 DRAFT_PREFIX = "gold/operational/drafts"
 GITHUB_PROFILE_URL = os.getenv("APP_GITHUB_PROFILE_URL", "https://github.com/JoshuaOforisurg")
 CONTACT_EMAIL = os.getenv("APP_CONTACT_EMAIL", "info@surgeonpreference.com").strip()
@@ -548,6 +550,18 @@ def load_reference_metadata() -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+@st.cache_data(ttl=60)
+def load_latest_run_manifest() -> dict | None:
+    try:
+        storage = get_storage_client()
+        manifest_keys = sorted(storage.list_objects(RUN_MANIFEST_PREFIX), reverse=True)
+        if not manifest_keys:
+            return None
+        return json.loads(storage.get_text(manifest_keys[0]))
+    except Exception:
+        return None
+
+
 def _postgres_frame(settings, query: str) -> pd.DataFrame:
     with psycopg2.connect(settings.psycopg2_dsn) as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
@@ -916,6 +930,8 @@ def render_overview() -> None:
         st.markdown("#### Audit")
         st.write("Check run metadata, object storage outputs, and clinical references.")
 
+    render_product_readiness()
+
     st.subheader("Current dataset")
     preview_columns = [
         column
@@ -952,6 +968,37 @@ def render_summary_tiles(items: list[tuple[str, object]]) -> None:
             "</div>"
         )
     st.markdown(f'<div class="sp-summary-grid">{"".join(tiles)}</div>', unsafe_allow_html=True)
+
+
+def render_product_readiness() -> None:
+    st.subheader("Product readiness")
+    storage = get_storage_client()
+    drafts = load_drafts(storage, DRAFT_PREFIX, organisation_id=active_organisation_id)
+    readiness = build_product_readiness_summary(
+        current_gold=current_df,
+        drafts=drafts,
+        metadata=load_postgres_metadata(),
+        latest_manifest=load_latest_run_manifest(),
+    )
+    status_labels = {
+        "ready": "Ready",
+        "needs_attention": "Needs attention",
+        "blocked": "Blocked",
+        "unknown": "Unknown",
+    }
+    render_summary_tiles(
+        [
+            ("Overall status", status_labels.get(readiness["overall_status"], readiness["overall_status"])),
+            ("Draft records", len(drafts)),
+            ("Current cards", len(current_df)),
+            ("Signals checked", len(readiness["signals"])),
+        ]
+    )
+    st.dataframe(
+        pd.DataFrame(readiness["signals"]),
+        width="stretch",
+        hide_index=True,
+    )
 
 
 def render_field_list(items: list[tuple[str, object]]) -> None:

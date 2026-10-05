@@ -6,6 +6,11 @@ from contracts.clinical_contracts import (
     OperationalPreferenceGold,
     SilverClinicalRecord,
 )
+from contracts.boundary_contracts import (
+    ContractViolationError,
+    SilverToGoldRecord,
+    validate_silver_to_gold_records,
+)
 
 __all__ = [
     "BronzeFileMetadata",
@@ -13,5 +18,8 @@ __all__ = [
     "ClinicalValidationResult",
     "GoldAnalyticsSnapshot",
     "OperationalPreferenceGold",
+    "ContractViolationError",
+    "SilverToGoldRecord",
+    "validate_silver_to_gold_records",
     "SilverClinicalRecord",
 ]
