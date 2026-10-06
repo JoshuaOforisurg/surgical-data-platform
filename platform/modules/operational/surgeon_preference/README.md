@@ -1,48 +1,74 @@
 # Surgeon Preference Card Pipeline
 
-Production-oriented local pipeline for messy surgeon preference data.
+Production-oriented surgeon preference data product for turning messy source
+preference-card data into validated operational cards, draft workflows, audit
+metadata, and a frontline Streamlit view.
 
 Live demo: [www.surgeonpreference.com](https://www.surgeonpreference.com)
 
 Public contact: `info@surgeonpreference.com` .
 
-## Version 1 Status
+## Current Status
 
-Version 1 of the Surgeon Preference pipeline is complete as a standalone
-operational data product.
+This module is a production-oriented portfolio data product. The local
+pipeline and app are the source of truth for what is currently proven in code.
+Azure support exists through the storage abstraction, Docker images, Azure Blob
+configuration, Azure Postgres configuration, and Container App/Job deployment
+notes, but new code changes only affect Azure after a new image is built,
+pushed, deployed, and run against Azure services.
 
-The pipeline now runs locally and in Azure as a scheduled/manual batch
-workflow. In the current Azure setup, Azure Data Factory starts a
-Container App Job. The job generates 1000 clinically aligned synthetic source
-files, processes them through the medallion pipeline, writes audit metadata to
-Postgres, publishes Gold outputs to Azure Blob Storage, and serves the latest
-operational preference cards through Streamlit.
-
-Completed Version 1 capabilities:
+Proven local capabilities:
 
 ```text
 Synthetic clinical source generation at 1000-file scale
 Landing, Bronze, Silver A, Silver B, and Gold processing
 Clinical reference enrichment and validation
-Postgres metadata, audit, and catalogue schemas
+Silver-to-Gold contract validation and quality gates
+Postgres metadata, audit, workflow, and operational card schemas
 Cloud-agnostic object storage abstraction for MinIO and Azure Blob
 Dockerized Streamlit web app
 Dedicated Dockerized batch job image
-Azure Blob, Azure Postgres, ACR, Container Apps, and ADF integration
 Versioned Gold outputs and latest operational views for Streamlit
+Gold-to-Postgres current-card sync after successful Gold publication
 ```
 
-The next platform pipeline should build on this work rather than expand this
-module further. The next data product is stock/inventory management, which can
-combine with the surgeon preference pipeline to support theatre analytics such
-as readiness, shortage detection, substitutions, and reorder planning.
+The focused platform scope is now documented in
+[`docs/three_pipeline_execution_plan.md`](docs/three_pipeline_execution_plan.md):
+
+```text
+Surgeon Preference -> Stock Inventory -> Loan Kit Management -> Case Readiness
+```
+
+The project should not expand into broader theatre analytics until those three
+pipelines and the unified Case Readiness layer are defensible.
+
+## What Is Proved vs Planned
+
+Proved in this module:
+
+- local medallion pipeline execution
+- local MinIO/Postgres/Docker Compose stack
+- synthetic data generation at scale
+- clinical enrichment, Silver-to-Gold contract checks, and Gold publication
+- object-storage manifests and Postgres metadata/audit tables
+- Streamlit preference-card view and controlled draft/review/publish workflow
+- operational Postgres current-card/version table foundation
+
+Planned or requiring fresh deployment evidence:
+
+- new Azure image containing the latest operational Postgres sync
+- Azure screenshots/logs proving the latest code path end to end
+- stage-level restart/replay semantics for partial pipeline failure
+- fuller observability dashboards and failure evidence
+- Stock Inventory and Loan Kit integration into Case Readiness
+- Infrastructure as Code for fully reproducible Azure deployment
 
 ## Version 2 Direction
 
 Version 2 is turning the Streamlit surface from a public demo into a controlled
 product workflow. The app now has the foundation for Azure-backed sign-in,
 access requests, administrator approval, draft submission, review, publishing,
-and Postgres audit history.
+Postgres audit history, and operational current-card tables.
 
 Real user access is documented in
 [`docs/real_user_access_model.md`](docs/real_user_access_model.md). The product
@@ -76,8 +102,11 @@ Gold operational preference cards + Gold analytics snapshot
         v
 Object storage gold/
         |
+        +--> Postgres app_workflow.preference_cards + preference_card_versions
+        |
         v
-Streamlit reads gold/operational/latest/gold_operational_preference_cards.csv
+Streamlit currently reads gold/operational/latest/gold_operational_preference_cards.csv
+with operational Postgres sync now available for the next read-path migration.
 ```
 
 ## Main Entry Points
@@ -263,8 +292,13 @@ iceberg_catalog.catalog_bootstrap
 app_workflow.organisations
 app_workflow.organisation_memberships
 app_workflow.app_users
+app_workflow.access_requests
 app_workflow.draft_reviews
 app_workflow.audit_events
+app_workflow.preference_cards
+app_workflow.preference_card_versions
+app_workflow.preference_card_drafts
+app_workflow.preference_card_publish_events
 ```
 
 Useful inspection queries:
@@ -300,6 +334,16 @@ order by updated_at desc;
 select organisation_id, user_email, roles, status, updated_at
 from app_workflow.organisation_memberships
 order by updated_at desc;
+
+select surgeon_name, procedure_name, current_version_number, status, updated_at
+from app_workflow.preference_cards
+order by updated_at desc
+limit 20;
+
+select card_id, version_number, is_current, source_gold_key, published_at
+from app_workflow.preference_card_versions
+order by created_at desc
+limit 20;
 ```
 
 ## Version 2 Product Foundation
@@ -311,6 +355,8 @@ The first product backbone is workspace ownership:
 organisation
     -> organisation memberships
     -> app users
+    -> current preference cards
+    -> card versions
     -> drafts
     -> review decisions
     -> publish events
@@ -328,6 +374,12 @@ When authenticated users are enabled, each user is synced into the Postgres
 registry and attached to the active organisation. Draft, review, publish, and
 audit payloads now carry `organisation_id`, so future hospitals or teams can be
 isolated without rewriting the workflow model.
+
+The current medallion pipeline now syncs each successful operational Gold
+publication into `app_workflow.preference_cards` and
+`app_workflow.preference_card_versions`. The next product step is to move the
+Streamlit current-card read path from Gold CSV toward these operational
+Postgres tables, with Gold remaining as the versioned pipeline/export layer.
 
 ## Iceberg Status
 
@@ -397,8 +449,10 @@ rejected -> rejected
 ```
 
 Approved drafts are not automatically promoted into the published Gold card.
-That publishing step remains deliberately separate so Version 2 can add a
-second controlled action for promotion, rollback, and version comparison.
+Publishing is deliberately separate so Version 2 can keep promotion, rollback,
+and version comparison as controlled actions. The current publish path updates
+Gold and records audit evidence; the next hardening step is to publish against
+the operational Postgres card/version model first, then export a Gold snapshot.
 
 For a public demo, draft submissions are disabled by default:
 
