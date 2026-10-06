@@ -29,6 +29,7 @@ from silver_transform.silver_a.file_format_reader import FileReader
 from silver_transform.silver_a.silver_a_transformer import SilverTransformer
 from silver_transform.silver_b.silver_b_batch_enricher import SilverBBatchEnricher
 from storage.object_store import ObjectStoreClient, sha256_file
+from streamlit_services.preference_card_repository import PreferenceCardRepository
 
 
 LOGGER = logging.getLogger(__name__)
@@ -43,6 +44,7 @@ class MinIOMedallionPipeline:
         self.silver_b = SilverBBatchEnricher(log_enabled=True)
         self.operational_gold = OperationalPreferenceGoldBuilder()
         self.analytics_gold = ClinicalGoldAnalytics()
+        self.preference_card_repository = PreferenceCardRepository(settings.postgres)
 
     def run(self, source_path: Path) -> Dict[str, Any]:
         run_id = new_run_id()
@@ -97,6 +99,10 @@ class MinIOMedallionPipeline:
             analytics_report = self.analytics_gold.full_report(silver_b_records)
 
             gold_keys = self._publish_gold(run_id, operational["rows"], analytics_report)
+            operational_sync_summary = self._sync_operational_current_cards(
+                operational_rows=operational["rows"],
+                gold_keys=gold_keys,
+            )
             self._publish_run_manifest(
                 run_id=run_id,
                 landed_files=landed_files,
@@ -105,6 +111,7 @@ class MinIOMedallionPipeline:
                 gold_keys=gold_keys,
                 quality_summary=quality_summary,
                 contract_summary=contract_summary,
+                operational_sync_summary=operational_sync_summary,
             )
 
             self.catalog.complete_run(
@@ -135,6 +142,7 @@ class MinIOMedallionPipeline:
                 "records_processed": len(all_raw_records),
                 "quality_summary": quality_summary,
                 "contract_summary": contract_summary,
+                "operational_sync_summary": operational_sync_summary,
                 "silver_keys": silver_keys,
                 "gold_keys": gold_keys,
             }
@@ -315,6 +323,31 @@ class MinIOMedallionPipeline:
 
         return keys
 
+    def _sync_operational_current_cards(
+        self,
+        operational_rows: List[Dict[str, Any]],
+        gold_keys: Dict[str, str],
+    ) -> Dict[str, Any]:
+        summary = self.preference_card_repository.import_gold_rows(
+            rows=operational_rows,
+            source_gold_key=gold_keys["operational_latest_csv"],
+            imported_by="pipeline",
+        )
+        result = {
+            "enabled": summary.enabled,
+            "imported": summary.imported,
+            "organisation_id": summary.organisation_id,
+            "source_gold_key": summary.source_gold_key,
+            "message": summary.message,
+        }
+        LOGGER.info(
+            "Operational current-card sync enabled=%s imported=%s source=%s",
+            result["enabled"],
+            result["imported"],
+            result["source_gold_key"],
+        )
+        return result
+
     def _publish_silver(self, run_id: str) -> Dict[str, str]:
         silver_prefix = self.settings.minio.silver_prefix
         silver_b_paths = self.silver_b.output_paths(run_id)
@@ -368,6 +401,7 @@ class MinIOMedallionPipeline:
         gold_keys: Dict[str, str],
         quality_summary: Dict[str, Any],
         contract_summary: Dict[str, Any],
+        operational_sync_summary: Dict[str, Any],
     ) -> None:
         manifest = {
             "run_id": run_id,
@@ -389,6 +423,7 @@ class MinIOMedallionPipeline:
             "records_processed": records_processed,
             "quality_summary": quality_summary,
             "contract_summary": contract_summary,
+            "operational_sync_summary": operational_sync_summary,
             "silver_keys": silver_keys,
             "gold_keys": gold_keys,
         }
