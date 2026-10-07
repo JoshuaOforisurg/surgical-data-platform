@@ -14,6 +14,10 @@ APPROVED_DRAFT_STATUS = "approved_pending_publish"
 PUBLISHED_DRAFT_STATUS = "published"
 
 
+def _normalise_organisation_id(value: Any) -> str:
+    return str(value or "default").strip() or "default"
+
+
 def load_publishable_drafts(
     storage,
     draft_prefix: str,
@@ -143,6 +147,10 @@ def build_publish_event(
     organisation_name: str = "Surgeon Preference Demo",
 ) -> dict[str, Any]:
     published_at = published_at or _now_iso()
+    draft_organisation_id = _normalise_organisation_id(draft.get("organisation_id"))
+    publish_organisation_id = _normalise_organisation_id(organisation_id)
+    if draft_organisation_id != publish_organisation_id:
+        raise ValueError("Draft organisation does not match publisher organisation.")
     return {
         "publish_id": str(uuid.uuid4()),
         "draft_id": draft.get("draft_id"),

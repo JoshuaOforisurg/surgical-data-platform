@@ -128,6 +128,31 @@ def test_load_publishable_drafts_can_be_scoped_to_an_organisation():
     assert [draft["draft_id"] for draft in drafts] == ["draft-theatre-b"]
 
 
+def test_load_publishable_drafts_applies_limit_after_organisation_filtering():
+    storage = FakeStorage(
+        {
+            "gold/operational/drafts/003.json": json.dumps(
+                {**_approved_edit_draft(), "draft_id": "draft-c", "organisation_id": "hospital-c"}
+            ),
+            "gold/operational/drafts/002.json": json.dumps(
+                {**_approved_edit_draft(), "draft_id": "draft-b", "organisation_id": "hospital-b"}
+            ),
+            "gold/operational/drafts/001.json": json.dumps(
+                {**_approved_edit_draft(), "draft_id": "draft-a", "organisation_id": "hospital-a"}
+            ),
+        }
+    )
+
+    drafts = load_publishable_drafts(
+        storage,
+        "gold/operational/drafts",
+        limit=1,
+        organisation_id="hospital-a",
+    )
+
+    assert [draft["draft_id"] for draft in drafts] == ["draft-a"]
+
+
 def test_apply_approved_edit_draft_updates_matching_gold_row_and_bumps_version():
     published = apply_approved_draft_to_gold(
         current_gold=_gold_df(),
@@ -229,3 +254,17 @@ def test_publish_event_gold_outputs_and_draft_status_are_archived():
     assert json.loads(storage.objects[event_key])["publisher_email"] == "admin@example.com"
     assert updated_draft["status"] == PUBLISHED_DRAFT_STATUS
     assert json.loads(storage.objects[draft["_object_key"]])["publish_event_key"] == event_key
+
+
+def test_build_publish_event_rejects_cross_organisation_draft():
+    with pytest.raises(ValueError, match="Draft organisation"):
+        build_publish_event(
+            draft={**_approved_edit_draft(), "organisation_id": "hospital-a"},
+            publisher="Clinical Admin",
+            publisher_email="admin@example.com",
+            publisher_roles=("admin",),
+            published_gold_key="",
+            latest_gold_key="gold/operational/latest/gold_operational_preference_cards.csv",
+            row_count=1,
+            organisation_id="hospital-b",
+        )

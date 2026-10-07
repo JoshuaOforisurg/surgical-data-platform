@@ -101,6 +101,31 @@ def test_load_pending_drafts_can_be_scoped_to_an_organisation():
     assert [draft["draft_id"] for draft in drafts] == ["draft-theatre-a"]
 
 
+def test_load_drafts_applies_limit_after_organisation_filtering():
+    storage = FakeStorage(
+        {
+            "gold/operational/drafts/003.json": json.dumps(
+                {**_draft(), "draft_id": "draft-c", "organisation_id": "hospital-c"}
+            ),
+            "gold/operational/drafts/002.json": json.dumps(
+                {**_draft(), "draft_id": "draft-b", "organisation_id": "hospital-b"}
+            ),
+            "gold/operational/drafts/001.json": json.dumps(
+                {**_draft(), "draft_id": "draft-a", "organisation_id": "hospital-a"}
+            ),
+        }
+    )
+
+    drafts = load_drafts(
+        storage,
+        "gold/operational/drafts",
+        limit=1,
+        organisation_id="hospital-a",
+    )
+
+    assert [draft["draft_id"] for draft in drafts] == ["draft-a"]
+
+
 def test_draft_display_and_change_rows_are_human_readable():
     draft = _draft()
 
@@ -144,6 +169,18 @@ def test_build_review_decision_validates_reviewer_decision_and_status():
 
     with pytest.raises(ValueError, match="Only pending_review drafts"):
         build_review_decision(_draft("approved"), "Reviewer", "approved")
+
+
+def test_build_review_decision_rejects_cross_organisation_draft():
+    draft = {**_draft(), "organisation_id": "hospital-a"}
+
+    with pytest.raises(ValueError, match="Draft organisation"):
+        build_review_decision(
+            draft=draft,
+            reviewer="Theatre Coordinator",
+            decision="approved",
+            organisation_id="hospital-b",
+        )
 
 
 def test_save_review_decision_writes_an_audit_object():

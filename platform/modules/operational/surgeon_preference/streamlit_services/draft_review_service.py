@@ -23,7 +23,7 @@ def load_drafts(
     keys = sorted(storage.list_objects(draft_prefix), reverse=True)
     organisation_scope = str(organisation_id or "").strip()
 
-    for key in keys[:limit]:
+    for key in keys:
         try:
             draft = json.loads(storage.get_text(key))
         except (json.JSONDecodeError, OSError, ValueError):
@@ -34,8 +34,14 @@ def load_drafts(
         if organisation_scope and draft_organisation_id != organisation_scope:
             continue
         drafts.append(draft)
+        if len(drafts) >= limit:
+            break
 
     return drafts
+
+
+def _normalise_organisation_id(value: Any) -> str:
+    return str(value or "default").strip() or "default"
 
 
 def load_pending_drafts(
@@ -103,6 +109,10 @@ def build_review_decision(
     reviewer_name = reviewer.strip()
     if not reviewer_name:
         raise ValueError("Reviewer name is required.")
+    draft_organisation_id = _normalise_organisation_id(draft.get("organisation_id"))
+    review_organisation_id = _normalise_organisation_id(organisation_id)
+    if draft_organisation_id != review_organisation_id:
+        raise ValueError("Draft organisation does not match reviewer organisation.")
 
     return {
         "review_id": str(uuid.uuid4()),
