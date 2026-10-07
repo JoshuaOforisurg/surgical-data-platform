@@ -67,22 +67,28 @@ pipeline demo.
 Tasks:
 
 - [x] Finish syncing Gold operational cards into Postgres current-card tables.
-- [ ] Use Postgres as the operational source of truth for current cards.
-- [ ] Keep Gold CSV/JSON as versioned exports and analytics snapshots.
-- [ ] Complete draft -> review -> publish against operational Postgres state.
-- [ ] Add card history view from `preference_card_versions`.
-- [ ] Add rollback/revert design for published card versions.
-- [ ] Confirm organisation and role scoping across cards, drafts, reviews, and
+- [x] Add Streamlit current-card read path: operational Postgres first, Gold
+      snapshot fallback.
+- [x] Use Postgres as the operational source of truth for current cards.
+- [x] Keep Gold CSV/JSON as versioned exports and analytics snapshots.
+- [x] Complete draft -> review -> publish against operational Postgres state.
+- [x] Add card history view from `preference_card_versions`.
+- [x] Add rollback/revert design for published card versions.
+- [x] Implement rollback/revert workflow for published card versions.
+- [x] Confirm organisation and role scoping across cards, drafts, reviews, and
       publish events.
-- [ ] Add tests for tenant isolation.
+- [x] Add tests for tenant isolation.
 - [ ] Verify local end-to-end run: generate -> landing -> Bronze -> Silver ->
       Gold -> Postgres current cards -> Streamlit.
 - [ ] Verify Azure end-to-end run and capture evidence.
+- [x] Add DBeaver/Postgres inspection guide for local operational-card checks.
 
 Evidence to capture:
 
 - [ ] Successful local pipeline run.
 - [ ] Successful Azure pipeline run.
+- [ ] Screenshots or query output from `app_workflow.preference_cards` and
+      `app_workflow.preference_card_versions`.
 - [ ] Streamlit current-card view.
 - [ ] Draft submission.
 - [ ] Review decision.

@@ -29,7 +29,8 @@ Cloud-agnostic object storage abstraction for MinIO and Azure Blob
 Dockerized Streamlit web app
 Dedicated Dockerized batch job image
 Versioned Gold outputs and latest operational views for Streamlit
-Gold-to-Postgres current-card sync after successful Gold publication
+Postgres-first current-card reads with Gold snapshot fallback
+Postgres operational card/version publishing with Gold snapshot export
 ```
 
 The focused platform scope is now documented in
@@ -52,7 +53,7 @@ Proved in this module:
 - clinical enrichment, Silver-to-Gold contract checks, and Gold publication
 - object-storage manifests and Postgres metadata/audit tables
 - Streamlit preference-card view and controlled draft/review/publish workflow
-- operational Postgres current-card/version table foundation
+- operational Postgres current-card/version history and rollback foundation
 
 Planned or requiring fresh deployment evidence:
 
@@ -105,8 +106,9 @@ Object storage gold/
         +--> Postgres app_workflow.preference_cards + preference_card_versions
         |
         v
-Streamlit currently reads gold/operational/latest/gold_operational_preference_cards.csv
-with operational Postgres sync now available for the next read-path migration.
+Streamlit reads operational Postgres first for current cards.
+If Postgres is not configured or has no current cards, it falls back to the
+latest Gold operational snapshot in object storage.
 ```
 
 ## Main Entry Points
@@ -207,6 +209,8 @@ When inspecting the Docker Postgres database from a local GUI such as pgAdmin
 or DBeaver, connect to host `127.0.0.1` on port `5433` by default. The
 container still uses port `5432` internally, but the host port is shifted to
 avoid clashing with a native Postgres install on the laptop.
+Use [`docs/local_postgres_inspection.md`](docs/local_postgres_inspection.md)
+for the DBeaver connection checklist and the operational-card SQL queries.
 
 ## Web App Image Deployment
 
@@ -448,11 +452,12 @@ needs_changes -> changes_requested
 rejected -> rejected
 ```
 
-Approved drafts are not automatically promoted into the published Gold card.
+Approved drafts are not automatically promoted into the published card.
 Publishing is deliberately separate so Version 2 can keep promotion, rollback,
-and version comparison as controlled actions. The current publish path updates
-Gold and records audit evidence; the next hardening step is to publish against
-the operational Postgres card/version model first, then export a Gold snapshot.
+and version comparison as controlled actions. The current publish path writes
+the approved draft into the operational Postgres card/version model first, then
+exports a refreshed Gold snapshot for object-storage evidence, analytics, and
+fallback reads.
 
 For a public demo, draft submissions are disabled by default:
 
