@@ -266,6 +266,9 @@ class BronzeCatalogRepository:
                 source_gold_key TEXT,
                 published_by TEXT,
                 published_at TIMESTAMPTZ,
+                change_type TEXT,
+                source_version_id UUID,
+                change_reason TEXT,
                 is_current BOOLEAN NOT NULL DEFAULT false,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 UNIQUE (card_id, version_number)
@@ -342,6 +345,9 @@ class BronzeCatalogRepository:
             "ALTER TABLE app_workflow.preference_cards ADD COLUMN IF NOT EXISTS current_version_id UUID",
             "ALTER TABLE app_workflow.preference_cards ADD COLUMN IF NOT EXISTS source_gold_key TEXT",
             "ALTER TABLE app_workflow.preference_card_versions ADD COLUMN IF NOT EXISTS source_gold_key TEXT",
+            "ALTER TABLE app_workflow.preference_card_versions ADD COLUMN IF NOT EXISTS change_type TEXT",
+            "ALTER TABLE app_workflow.preference_card_versions ADD COLUMN IF NOT EXISTS source_version_id UUID",
+            "ALTER TABLE app_workflow.preference_card_versions ADD COLUMN IF NOT EXISTS change_reason TEXT",
             "ALTER TABLE app_workflow.preference_card_drafts ADD COLUMN IF NOT EXISTS object_key TEXT",
             (
                 "UPDATE app_workflow.app_users "
@@ -562,6 +568,9 @@ class BronzeCatalogRepository:
                 "version_number",
                 "card_payload",
                 "source_gold_key",
+                "change_type",
+                "source_version_id",
+                "change_reason",
                 "is_current",
             ],
             ("app_workflow", "preference_card_drafts"): [

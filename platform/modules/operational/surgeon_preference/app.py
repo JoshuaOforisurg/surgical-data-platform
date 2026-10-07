@@ -49,6 +49,10 @@ from streamlit_services.publishing_service import (
     save_publish_event,
     save_published_gold,
 )
+from streamlit_services.preference_card_repository import (
+    PreferenceCardRepository,
+    current_card_rows_to_dataframe,
+)
 from streamlit_services.product_readiness_service import build_product_readiness_summary
 from streamlit_services.streamlit_service import get_storage_client
 from streamlit_services.user_registry_service import (
@@ -511,6 +515,76 @@ def load_gold_data():
         return None
 
 
+@st.cache_data(ttl=60)
+def load_operational_postgres_data(organisation_id: str) -> pd.DataFrame | None:
+    settings = load_settings().postgres
+    if not settings:
+        return None
+
+    try:
+        repository = PreferenceCardRepository(settings)
+        rows = repository.list_current_cards(organisation_id=organisation_id)
+    except psycopg2.Error:
+        return None
+
+    if not rows:
+        return None
+    return current_card_rows_to_dataframe(rows)
+
+
+@st.cache_data(ttl=60)
+def load_current_preference_data(organisation_id: str) -> dict:
+    postgres_df = load_operational_postgres_data(organisation_id)
+    if postgres_df is not None and not postgres_df.empty:
+        return {
+            "data": postgres_df,
+            "source": "Operational database",
+            "source_layer": "Postgres",
+            "fallback_used": False,
+            "message": "Current cards loaded from app_workflow.preference_cards.",
+        }
+
+    gold_df = load_gold_data()
+    if gold_df is not None and not gold_df.empty:
+        return {
+            "data": gold_df,
+            "source": "Gold snapshot fallback",
+            "source_layer": "Gold",
+            "fallback_used": True,
+            "message": f"Current cards loaded from {GOLD_OPERATIONAL_KEY}.",
+        }
+
+    return {
+        "data": None,
+        "source": "Unavailable",
+        "source_layer": "None",
+        "fallback_used": True,
+        "message": "No operational Postgres cards or Gold snapshot were available.",
+    }
+
+
+@st.cache_data(ttl=60)
+def load_preference_card_history(
+    organisation_id: str,
+    surgeon_name: str,
+    procedure_name: str,
+) -> pd.DataFrame:
+    settings = load_settings().postgres
+    if not settings:
+        return pd.DataFrame()
+
+    try:
+        rows = PreferenceCardRepository(settings).list_card_history(
+            organisation_id=organisation_id,
+            surgeon_name=surgeon_name,
+            procedure_name=procedure_name,
+        )
+    except psycopg2.Error:
+        return pd.DataFrame()
+
+    return pd.DataFrame(rows)
+
+
 def save_draft(payload: dict, submitter) -> str:
     block_reason = submission_block_reason(submitter, ENABLE_DRAFT_SUBMISSIONS)
     if block_reason:
@@ -598,6 +672,87 @@ def record_publish_in_postgres(publish_event: dict, publish_event_key: str) -> t
         return False, str(exc).strip()
 
     return True, "Publish event written to the Postgres workflow audit."
+
+
+def sync_published_gold_to_operational_postgres(
+    published_gold: pd.DataFrame,
+    source_gold_key: str,
+    imported_by: str,
+) -> tuple[bool, str]:
+    settings = load_settings().postgres
+    if not settings:
+        return False, "Postgres settings are not configured for this deployment."
+
+    try:
+        summary = PreferenceCardRepository(settings).import_gold_rows(
+            rows=published_gold.to_dict("records"),
+            source_gold_key=source_gold_key,
+            imported_by=imported_by,
+        )
+    except (psycopg2.Error, ValueError) as exc:
+        return False, str(exc).strip()
+
+    return True, summary.message
+
+
+def publish_draft_to_operational_postgres(
+    draft: dict,
+    publisher: str,
+    publisher_email: str,
+    published_at: str,
+) -> tuple[bool, str]:
+    settings = load_settings().postgres
+    if not settings:
+        return False, "Postgres settings are not configured for this deployment."
+
+    try:
+        summary = PreferenceCardRepository(settings).publish_approved_draft(
+            draft=draft,
+            publisher=publisher_email or publisher,
+            editable_fields=EDITABLE_FIELDS,
+            source_gold_key=GOLD_OPERATIONAL_KEY,
+            organisation_id=active_organisation_id,
+            published_at=published_at,
+        )
+    except (psycopg2.Error, ValueError) as exc:
+        return False, str(exc).strip()
+
+    return summary.published, summary.message
+
+
+def rollback_preference_card_to_version(
+    card_id: str,
+    source_version_id: str,
+    reason: str,
+) -> tuple[bool, str, dict]:
+    settings = load_settings().postgres
+    if not settings:
+        return False, "Postgres settings are not configured for this deployment.", {}
+    if current_user is None:
+        return False, "No authenticated administrator identity was found.", {}
+
+    try:
+        summary = PreferenceCardRepository(settings).rollback_to_version(
+            card_id=card_id,
+            source_version_id=source_version_id,
+            actor_email=current_user.email,
+            actor_name=current_user.display_name,
+            actor_roles=list(current_user.roles),
+            reason=reason,
+            source_gold_key=GOLD_OPERATIONAL_KEY,
+            organisation_id=active_organisation_id,
+        )
+    except (psycopg2.Error, ValueError) as exc:
+        return False, str(exc).strip(), {}
+
+    return summary.rolled_back, summary.message, {
+        "card_id": summary.card_id,
+        "rollback_version_id": summary.rollback_version_id,
+        "source_version_id": summary.source_version_id,
+        "from_version_number": summary.from_version_number,
+        "to_version_number": summary.to_version_number,
+        "organisation_id": summary.organisation_id,
+    }
 
 
 def record_draft_submission_in_postgres(draft: dict, draft_key: str) -> tuple[bool, str]:
@@ -814,17 +969,107 @@ def load_postgres_metadata() -> dict:
             LIMIT 100
             """,
         )
+        metadata["operational_current_cards"] = _postgres_frame(
+            settings,
+            """
+            SELECT
+                cards.organisation_id,
+                cards.surgeon_name,
+                cards.procedure_name,
+                cards.specialty,
+                cards.subspecialty,
+                cards.current_version_number,
+                cards.status,
+                versions.change_type,
+                versions.source_gold_key,
+                versions.published_by,
+                versions.published_at,
+                cards.updated_at
+            FROM app_workflow.preference_cards cards
+            JOIN app_workflow.preference_card_versions versions
+                ON cards.current_version_id = versions.version_id
+            ORDER BY cards.updated_at DESC, cards.surgeon_name, cards.procedure_name
+            LIMIT 100
+            """,
+        )
+        metadata["operational_version_summary"] = _postgres_frame(
+            settings,
+            """
+            SELECT
+                cards.organisation_id,
+                COALESCE(versions.change_type, 'unknown') AS change_type,
+                versions.is_current,
+                COUNT(*) AS version_count,
+                MAX(versions.created_at) AS latest_version_created_at
+            FROM app_workflow.preference_card_versions versions
+            JOIN app_workflow.preference_cards cards
+                ON cards.card_id = versions.card_id
+            GROUP BY cards.organisation_id, COALESCE(versions.change_type, 'unknown'), versions.is_current
+            ORDER BY latest_version_created_at DESC
+            """,
+        )
+        metadata["operational_recent_versions"] = _postgres_frame(
+            settings,
+            """
+            SELECT
+                cards.organisation_id,
+                cards.surgeon_name,
+                cards.procedure_name,
+                versions.version_number,
+                versions.version_label,
+                versions.is_current,
+                versions.change_type,
+                versions.source_version_id,
+                versions.change_reason,
+                versions.published_by,
+                versions.published_at,
+                versions.created_at
+            FROM app_workflow.preference_card_versions versions
+            JOIN app_workflow.preference_cards cards
+                ON cards.card_id = versions.card_id
+            ORDER BY versions.created_at DESC, versions.version_number DESC
+            LIMIT 100
+            """,
+        )
 
     return metadata
+
+
+def detect_auth_provider(headers) -> str:
+    for key in headers or {}:
+        if str(key).lower().startswith("x-ms-client-principal"):
+            return "azure_container_apps"
+    return "local_env"
+
+
+current_user = load_current_user(os.environ, st.context.headers)
+current_user, user_registry_warning = sync_user_with_registry(
+    current_user,
+    load_settings().postgres,
+    detect_auth_provider(st.context.headers),
+)
+active_organisation_id = (
+    current_user.organisation_id if current_user else os.getenv("APP_ORGANISATION_ID", DEFAULT_ORGANISATION_ID)
+).strip() or DEFAULT_ORGANISATION_ID
+active_organisation_name = (
+    current_user.organisation_name
+    if current_user
+    else os.getenv("APP_ORGANISATION_NAME", "Surgeon Preference Demo")
+).strip() or "Surgeon Preference Demo"
+draft_submission_disabled_reason = submission_block_reason(current_user, ENABLE_DRAFT_SUBMISSIONS)
+
+if user_registry_warning:
+    st.warning(user_registry_warning)
 
 
 # ----------------------------
 # LOAD DATA
 # ----------------------------
-df = load_gold_data()
+preference_data = load_current_preference_data(active_organisation_id)
+df = preference_data["data"]
 
 if df is None or df.empty:
-    st.warning("No Gold data found in object storage. Run the pipeline first.")
+    st.warning("No current preference data found. Run the pipeline first.")
     st.stop()
 
 # ----------------------------
@@ -860,7 +1105,11 @@ status_col_1, status_col_2, status_col_3, status_col_4 = st.columns(4)
 status_col_1.metric("Current cards", len(current_df))
 status_col_2.metric("Surgeons", current_df["surgeon_name"].nunique())
 status_col_3.metric("Procedures", current_df["procedure"].nunique() if "procedure" in current_df else 0)
-status_col_4.metric("Pipeline layer", "Gold")
+status_col_4.metric("Data source", preference_data["source_layer"])
+if preference_data["fallback_used"]:
+    st.info(preference_data["message"])
+else:
+    st.caption(preference_data["message"])
 
 overview_tab, view_tab, edit_tab, create_tab, review_tab, publish_tab, access_tab, metadata_tab = st.tabs(
     [
@@ -874,34 +1123,6 @@ overview_tab, view_tab, edit_tab, create_tab, review_tab, publish_tab, access_ta
         "Metadata",
     ]
 )
-
-
-def detect_auth_provider(headers) -> str:
-    for key in headers or {}:
-        if str(key).lower().startswith("x-ms-client-principal"):
-            return "azure_container_apps"
-    return "local_env"
-
-
-current_user = load_current_user(os.environ, st.context.headers)
-current_user, user_registry_warning = sync_user_with_registry(
-    current_user,
-    load_settings().postgres,
-    detect_auth_provider(st.context.headers),
-)
-active_organisation_id = (
-    current_user.organisation_id if current_user else os.getenv("APP_ORGANISATION_ID", DEFAULT_ORGANISATION_ID)
-).strip() or DEFAULT_ORGANISATION_ID
-active_organisation_name = (
-    current_user.organisation_name
-    if current_user
-    else os.getenv("APP_ORGANISATION_NAME", "Surgeon Preference Demo")
-).strip() or "Surgeon Preference Demo"
-draft_submission_disabled_reason = submission_block_reason(current_user, ENABLE_DRAFT_SUBMISSIONS)
-
-if user_registry_warning:
-    st.warning(user_registry_warning)
-
 st.caption(f"Workspace: {active_organisation_name} ({active_organisation_id})")
 render_account_bar(current_user)
 
@@ -1071,6 +1292,135 @@ def render_card(card: dict) -> None:
             )
 
 
+def render_card_history(surgeon_name: str, procedure_name: str | None) -> None:
+    if not procedure_name or procedure_name == "All procedures":
+        return
+    history = load_preference_card_history(
+        active_organisation_id,
+        surgeon_name,
+        procedure_name,
+    )
+    if history.empty:
+        return
+
+    st.subheader("Version history")
+    columns = [
+        column
+        for column in [
+            "version_label",
+            "version_number",
+            "is_current",
+            "change_type",
+            "published_by",
+            "published_at",
+            "change_reason",
+            "source_gold_key",
+        ]
+        if column in history.columns
+    ]
+    st.dataframe(
+        history[columns],
+        width="stretch",
+        hide_index=True,
+    )
+
+    rollback_block_reason = publish_block_reason(current_user, ENABLE_DRAFT_PUBLISHING)
+    if rollback_block_reason or preference_data["source_layer"] != "Postgres":
+        return
+
+    rollback_options_df = history[history["is_current"] != True].copy()
+    if rollback_options_df.empty:
+        return
+
+    with st.expander("Revert to a previous version"):
+        st.warning(
+            "Reverting creates a new current version copied from the selected historical "
+            "version. It does not delete or overwrite history."
+        )
+        option_labels = {}
+        for _, row in rollback_options_df.iterrows():
+            label = (
+                f"{row.get('version_label') or 'version'} "
+                f"- published {row.get('published_at') or 'unknown date'} "
+                f"by {row.get('published_by') or 'unknown'}"
+            )
+            option_labels[label] = row.to_dict()
+
+        selected_label = st.selectbox(
+            "Historical version to copy",
+            list(option_labels),
+            key=f"rollback_version_{surgeon_name}_{procedure_name}",
+        )
+        selected_version = option_labels[selected_label]
+        reason = st.text_area(
+            "Rollback reason",
+            key=f"rollback_reason_{surgeon_name}_{procedure_name}",
+            placeholder="Explain why this preference card should be reverted.",
+        )
+        confirm = st.checkbox(
+            "I understand this will create a new current version copied from the selected historical version.",
+            key=f"rollback_confirm_{surgeon_name}_{procedure_name}",
+        )
+        rollback_submitted = st.button(
+            "Create Rollback Version",
+            disabled=not confirm,
+            key=f"rollback_submit_{surgeon_name}_{procedure_name}",
+        )
+
+        if rollback_submitted:
+            ok, message, rollback_context = rollback_preference_card_to_version(
+                card_id=str(selected_version.get("card_id")),
+                source_version_id=str(selected_version.get("version_id")),
+                reason=reason,
+            )
+            if not ok:
+                st.error(message)
+                return
+
+            load_operational_postgres_data.clear()
+            load_current_preference_data.clear()
+            postgres_current = load_operational_postgres_data(active_organisation_id)
+            if postgres_current is None or postgres_current.empty:
+                st.error("Rollback succeeded, but current cards could not be reloaded for Gold export.")
+                return
+
+            storage = get_storage_client()
+            rollback_event = {
+                "publish_id": str(uuid.uuid4()),
+                "event_type": "preference_card_rollback_published",
+                "organisation_id": active_organisation_id,
+                "organisation_name": active_organisation_name,
+                "publisher": current_user.display_name if current_user else "",
+                "publisher_email": current_user.email if current_user else "",
+                "publisher_roles": list(current_user.roles) if current_user else [],
+                "published_at": datetime.now(UTC).isoformat(),
+                "latest_gold_key": GOLD_OPERATIONAL_KEY,
+                "row_count": len(postgres_current),
+                "surgeon_name": surgeon_name,
+                "procedure": procedure_name,
+                "rollback_reason": reason.strip(),
+                **rollback_context,
+            }
+            published_gold_key = save_published_gold(
+                storage=storage,
+                published_gold=current_preference_rows(postgres_current),
+                publish_id=rollback_event["publish_id"],
+                latest_gold_key=GOLD_OPERATIONAL_KEY,
+            )
+            rollback_event["published_gold_key"] = published_gold_key
+            rollback_event_key = save_publish_event(storage, rollback_event)
+
+            load_gold_data.clear()
+            load_operational_postgres_data.clear()
+            load_current_preference_data.clear()
+            load_preference_card_history.clear()
+            load_postgres_metadata.clear()
+
+            st.success(message)
+            st.success(f"Gold snapshot refreshed: {published_gold_key}")
+            st.success(f"Rollback event archived: {rollback_event_key}")
+
+
 with overview_tab:
     render_overview()
 
@@ -1112,6 +1462,8 @@ with view_tab:
             st.warning("No data found for surgeon")
         else:
             render_card(card)
+            if procedure_filter:
+                render_card_history(selected_surgeon, procedure_filter)
 
         st.subheader("Matching rows")
         summary_columns = [
@@ -1452,17 +1804,37 @@ with publish_tab:
                 try:
                     published_at = datetime.now(UTC).isoformat()
                     publisher_name = current_user.display_name if current_user else publisher
-                    published_gold = apply_approved_draft_to_gold(
-                        current_gold=current_df,
-                        draft=selected_publish_draft,
-                        publisher=publisher_name,
-                        editable_fields=EDITABLE_FIELDS,
-                        published_at=published_at,
+                    publisher_email = current_user.email if current_user else ""
+                    operational_publish_ok, operational_publish_message = (
+                        publish_draft_to_operational_postgres(
+                            draft=selected_publish_draft,
+                            publisher=publisher_name,
+                            publisher_email=publisher_email,
+                            published_at=published_at,
+                        )
                     )
+
+                    if operational_publish_ok:
+                        load_operational_postgres_data.clear()
+                        load_current_preference_data.clear()
+                        postgres_current = load_operational_postgres_data(active_organisation_id)
+                        if postgres_current is None or postgres_current.empty:
+                            raise ValueError(
+                                "Operational publish succeeded, but current cards could not be reloaded."
+                            )
+                        published_gold = current_preference_rows(postgres_current).copy()
+                    else:
+                        published_gold = apply_approved_draft_to_gold(
+                            current_gold=current_df,
+                            draft=selected_publish_draft,
+                            publisher=publisher_name,
+                            editable_fields=EDITABLE_FIELDS,
+                            published_at=published_at,
+                        )
                     draft_context_event = build_publish_event(
                         draft=selected_publish_draft,
                         publisher=publisher_name,
-                        publisher_email=current_user.email if current_user else "",
+                        publisher_email=publisher_email,
                         publisher_roles=current_user.roles if current_user else (),
                         published_gold_key="",
                         latest_gold_key=GOLD_OPERATIONAL_KEY,
@@ -1492,18 +1864,46 @@ with publish_tab:
                         publish_event,
                         publish_event_key,
                     )
+                    if operational_publish_ok:
+                        operational_sync_ok = True
+                        operational_sync_message = operational_publish_message
+                    else:
+                        operational_sync_ok, operational_sync_message = (
+                            sync_published_gold_to_operational_postgres(
+                                published_gold=published_gold,
+                                source_gold_key=GOLD_OPERATIONAL_KEY,
+                                imported_by=publisher_email or publisher_name,
+                            )
+                        )
                     load_gold_data.clear()
+                    load_operational_postgres_data.clear()
+                    load_current_preference_data.clear()
+                    load_preference_card_history.clear()
                     load_postgres_metadata.clear()
 
                     st.success(f"Published Gold version: {published_gold_key}")
                     st.success(f"Publish event archived: {publish_event_key}")
                     st.success(f"Draft moved to status: {updated_draft['status']}")
+                    if operational_publish_ok:
+                        st.success(f"Operational publish completed: {operational_publish_message}")
+                    else:
+                        st.warning(
+                            "Operational Postgres publish was not used; the app published through "
+                            f"the Gold fallback path: {operational_publish_message}"
+                        )
                     if postgres_ok:
                         st.success(postgres_message)
                     else:
                         st.warning(
                             "The publish was saved to object storage, but the Postgres workflow "
                             f"audit was not written: {postgres_message}"
+                        )
+                    if operational_sync_ok:
+                        st.success(f"Operational current cards synced: {operational_sync_message}")
+                    else:
+                        st.warning(
+                            "The publish was saved to Gold, but operational current-card sync "
+                            f"did not complete: {operational_sync_message}"
                         )
                 except ValueError as exc:
                     st.error(str(exc))
@@ -1836,6 +2236,9 @@ with metadata_tab:
         ("Iceberg catalog", "iceberg"),
         ("Workflow reviews", "workflow_reviews"),
         ("Workflow audit events", "workflow_audit"),
+        ("Operational current cards", "operational_current_cards"),
+        ("Operational version summary", "operational_version_summary"),
+        ("Operational recent versions", "operational_recent_versions"),
         ("Organisations", "organisations"),
         ("Organisation memberships", "organisation_memberships"),
         ("Access requests", "access_requests"),
