@@ -1,400 +1,196 @@
 # Surgical Data Platform
 
-This repository is a healthcare data engineering portfolio project built from
-real operating theatre experience. It shows how everyday surgical workflow
-problems can be turned into reliable data pipelines, dashboards, and operational
-tools.
+A healthcare data product built from real operating-theatre experience. The platform turns messy surgical operations data into governed pipelines, operational dashboards, audit trails, and readiness views that frontline theatre teams could actually use.
 
-The platform is built mainly with **Python**, using it to generate realistic
-synthetic data, clean messy source files, run the pipelines, publish outputs,
-and power the dashboard services.
+The current product focus is deliberately narrow:
 
-The project uses **synthetic data only**. It does not contain real patient data,
-staff records, theatre lists, hospital stock records, or confidential hospital
-information.
+```text
+Surgeon Preference -> Stock Inventory -> Loan Kit Management -> Case Readiness
+```
+
+The project uses **synthetic data only**. It does not contain real patient data, staff records, theatre lists, hospital stock records, or confidential hospital information.
 
 Live project site: [www.surgeonpreference.com](https://www.surgeonpreference.com)
 
----
+## Start Here
 
-## What This Platform Is For
+| Need | Link |
+| --- | --- |
+| Product execution plan | [`platform/modules/operational/surgeon_preference/docs/three_pipeline_execution_plan.md`](platform/modules/operational/surgeon_preference/docs/three_pipeline_execution_plan.md) |
+| Surgeon Preference Postgres/DBeaver inspection | [`platform/modules/operational/surgeon_preference/docs/local_postgres_inspection.md`](platform/modules/operational/surgeon_preference/docs/local_postgres_inspection.md) |
+| Preference-card rollback design | [`platform/modules/operational/surgeon_preference/docs/preference_card_rollback_design.md`](platform/modules/operational/surgeon_preference/docs/preference_card_rollback_design.md) |
+| Real user access model | [`platform/modules/operational/surgeon_preference/docs/real_user_access_model.md`](platform/modules/operational/surgeon_preference/docs/real_user_access_model.md) |
+| Productisation roadmap | [`platform/modules/operational/surgeon_preference/docs/productisation_roadmap.md`](platform/modules/operational/surgeon_preference/docs/productisation_roadmap.md) |
+| Azure migration learning plan | [`platform/modules/operational/surgeon_preference/docs/azure_migration_learning_plan.md`](platform/modules/operational/surgeon_preference/docs/azure_migration_learning_plan.md) |
+| Azure Data Factory automation notes | [`platform/modules/operational/surgeon_preference/docs/azure_data_factory_automation.md`](platform/modules/operational/surgeon_preference/docs/azure_data_factory_automation.md) |
+| Stock Inventory module | [`platform/modules/operational/stock_inventory`](platform/modules/operational/stock_inventory) |
+| Loan Kit module placeholder | [`platform/modules/operational/Loan Kit and Instrument Management`](platform/modules/operational/Loan%20Kit%20and%20Instrument%20Management) |
+| Deployment notes | [`deployment/README.md`](deployment/README.md) |
 
-Operating theatres depend on a lot of information being correct at the right
-time: surgeon preferences, instruments, implants, consumables, theatre stock,
-case lists, anaesthetic needs, equipment, and local team knowledge.
+This README gives the platform overview. The linked documents hold the deeper runbooks, design notes, and implementation plans.
 
-In many hospitals, this information is split across spreadsheets, paper notes,
-stock cupboards, supplier systems, scanning systems, emails, and people's
-memory. When the data is hard to trust, theatres can lose time checking,
-chasing, substituting, delaying, or reordering things at short notice.
+## Product Vision
 
-This platform explores how surgical operations data can be made:
+Operating theatres depend on the right information being correct at the right time: surgeon preferences, instruments, implants, consumables, stock, loan kits, sterility status, supplier milestones, and local team knowledge.
 
-- easier for theatre teams to review
-- safer to audit
-- cleaner for analytics
-- reusable across connected pipelines
-- ready for future cloud deployment and AI use cases
+In many hospitals, this information is split across paper folders, spreadsheets, supplier messages, stock cupboards, scanner events, emails, and memory. When the data is stale or hard to trust, theatre teams lose time checking, chasing, escalating, substituting, reordering, or delaying cases.
 
-The aim is not just to store data. The aim is to support practical theatre
-questions like:
+This platform explores one practical question:
 
-- What does this surgeon need for this procedure?
-- Are we ready for tomorrow's list?
-- Which stock items are short, expired, recalled, or awaiting sterilisation?
-- What can be substituted safely?
-- What needs reordering?
-- Which loan kits are required, confirmed, delivered, checked, and ready?
-- Which procedures create the most cost or shortage pressure?
-
----
-
-## Current Progress
-
-Two operational pipelines have been built so far. A third, Loan Kit Management,
-is the proposed next pipeline because it connects case requirements and stock
-readiness with the supplier-managed equipment that must arrive for specific
-operations.
-
-### 1. Surgeon Preference Pipeline
-
-**Status: Version 1 complete. Version 2 product workflow in progress.**
-
-This pipeline turns messy surgeon preference information into operational
-preference cards that theatre teams can use.
-
-It produces structured cards showing:
-
-- expected instruments and trays
-- implants and implant systems
-- consumables and disposables
-- sutures and dressings
-- equipment
-- patient positioning
-- anaesthetic notes
-- skin preparation
-- special instructions
-- validation warnings and missing-item checks
-
-Version 1 is complete as a working local and Azure-ready data product. It can:
-
-- generate clinically realistic synthetic preference-card data
-- process JSON and CSV source files
-- clean and validate the data
-- enrich records with clinical reference information
-- publish operational preference-card outputs
-- store audit and metadata records in Postgres
-- write outputs to local MinIO or Azure Blob Storage
-- run as a Dockerized batch job
-- serve the latest preference cards through a Streamlit app
-- run in Azure using Azure Blob Storage, Azure Postgres, Azure Container Apps,
-  Azure Container Registry, and Azure Data Factory
-
-Version 2 work is focused on turning the pipeline into a more controlled product
-workflow:
-
-- user sign-in and access requests
-- organisation and role management
-- draft preference-card edits
-- review and publish workflow
-- audit history for access, review, and publishing decisions
-
-The pipeline is therefore functionally mature as a data product, while the
-remaining work is mainly product workflow, access control, and governance.
-
-### 2. Stock & Inventory Management Pipeline
-
-**Status: Active build. Core local pipeline and dashboard foundations are now in place.**
-
-This pipeline connects stock information with theatre demand. In simple terms,
-the Surgeon Preference pipeline says, "This is what the surgeon expects for the
-case." The Stock & Inventory pipeline asks, "Do we actually have it, is it safe
-to use, and what should we do if we do not?"
-
-The stock pipeline now includes:
-
-- clinically aligned synthetic stock data generation
-- manual spreadsheet-style stock checks
-- scanner/barcode-style stock event files
-- ERP-style stock balance files
-- item catalogue, supplier, location, lot, expiry, recall, and sterility data
-- Bronze ingestion for raw source files
-- Silver normalisation and enrichment
-- Gold outputs for readiness, shortages, reorder worklists, risk summaries,
-  usage, cost, surgeon summaries, and procedure summaries
-- integration points for Surgeon Preference Gold outputs
-- local dashboard service and Streamlit dashboard foundations
-- quality gates and cloud-readiness checks
-- Docker and Container App Job scaffolding
-
-The complete local test suite passes, and the core Azure resources and container
-workloads have been created. Cloud hardening is still in progress: persistent
-Blob and Postgres configuration, migration execution, managed identities,
-end-to-end output verification, and dashboard validation remain before the
-Azure deployment should be treated as complete.
-
-### Shared Platform Foundation
-
-The two pipelines now use a shared provider-neutral object-storage layer under
-`platform/shared/storage`. It supports local S3/MinIO and Azure Blob Storage
-while preserving each pipeline's existing import paths. This is the first
-deliberate extraction of duplicated infrastructure into a reusable platform
-capability. The shared storage tests and both complete pipeline test suites pass;
-Docker image verification remains the final environment-level check.
-
----
-
-## How The Pipelines Work
-
-At a high level, the platform connects the information theatre teams already
-use every day and turns it into practical readiness views.
-
-```mermaid
-flowchart TB
-    A["Theatre teams"]
-    B["Hospital information\npreferences, stock checks,\nscanners, suppliers"]
-    C["Surgical Data Platform"]
-    D["Built pipelines\nSurgeon Preference\nStock & Inventory"]
-    E["Operational outputs\npreference cards, readiness,\nshortages, reorders"]
-    F["Better theatre preparation"]
-    G["Audit trail\nwhat changed and why"]
-
-    A --> B --> C --> D --> E --> F
-    D --> G
-
-    classDef people fill:#FDE68A,stroke:#B45309,color:#111827,stroke-width:2px
-    classDef source fill:#DBEAFE,stroke:#2563EB,color:#111827,stroke-width:2px
-    classDef platform fill:#DCFCE7,stroke:#16A34A,color:#111827,stroke-width:2px
-    classDef output fill:#FCE7F3,stroke:#DB2777,color:#111827,stroke-width:2px
-    classDef audit fill:#EDE9FE,stroke:#7C3AED,color:#111827,stroke-width:2px
-
-    class A people
-    class B source
-    class C,D platform
-    class E,F output
-    class G audit
+```text
+Can tomorrow's surgical case proceed from a materials, instruments, and preference-readiness point of view?
 ```
 
-Inside each pipeline, data moves through a simple "raw to ready" journey.
+The target product outcome is a unified Case Readiness view:
 
-```mermaid
-flowchart TB
-    A["Landing\nsave the original file"]
-    B["Bronze\nlog every raw record"]
-    C["Silver\nclean, match, and check"]
-    D["Gold\npublish useful outputs"]
-    E["Action\nreview, prepare, reorder"]
+```text
+CASE_10421
+Preference requirements     ready
+Internal stock              ready
+Loan kit                    at risk
+Sterilisation               blocked
 
-    A --> B --> C --> D --> E
-
-    classDef landing fill:#E0F2FE,stroke:#0284C7,color:#0F172A,stroke-width:2px
-    classDef bronze fill:#FEF3C7,stroke:#D97706,color:#0F172A,stroke-width:2px
-    classDef silver fill:#F1F5F9,stroke:#64748B,color:#0F172A,stroke-width:2px
-    classDef gold fill:#FEF9C3,stroke:#CA8A04,color:#0F172A,stroke-width:2px
-    classDef action fill:#DCFCE7,stroke:#16A34A,color:#0F172A,stroke-width:2px
-
-    class A landing
-    class B bronze
-    class C silver
-    class D gold
-    class E action
+READINESS: AT RISK
+Reason: loan kit delivered but not released for sterilisation
+Owner: loan-kit coordinator
+Deadline: 14:00
 ```
 
-The technical name for this is a medallion pipeline:
+## Current Status
 
-- **Landing** means the original file is safely copied.
-- **Bronze** means raw files and raw records are logged.
-- **Silver** means data is cleaned, standardised, and checked.
-- **Gold** means the output is ready for users, dashboards, or analysis.
+This repository is a production-oriented data product. Local Docker, MinIO, Postgres, pipeline execution, tests, and Streamlit views are the source of truth for what is proven in code. Azure support exists, but each new change only affects Azure after a new image is built, pushed, deployed, and verified against Azure services.
 
-For non-technical readers: each stage makes the data more trustworthy, while
-keeping a record of where it came from.
+| Area | Status |
+| --- | --- |
+| Surgeon Preference | Most advanced module. Local medallion pipeline, MinIO/Postgres integration, clinical reference enrichment, Streamlit frontend, draft/review/publish workflow, Postgres current-card source of truth, version history, rollback, access workflow, and tests are in place. |
+| Stock Inventory | Active module. Local pipeline, synthetic inventory sources, reconciliation foundations, Gold outputs, dashboard foundations, tests, and cloud scaffolding are in place. Azure hardening remains in progress. |
+| Loan Kit Management | Next module. Scoped conceptually, not yet implemented as a pipeline. |
+| Case Readiness | Target combined product. Not yet built; depends on the three pipelines above. |
+| Shared platform | Shared provider-neutral object storage exists for MinIO and Azure Blob. More shared database, contracts, lineage, quality, orchestration, and observability utilities are still planned. |
+| Azure | Surgeon Preference and Stock have Azure-oriented config/deployment notes. Fresh end-to-end evidence is still needed for the latest code paths. |
 
----
+## What The Platform Should Prove
 
-## How The Two Built Pipelines Connect
+The project is strongest when it proves a complete operational slice rather than a huge hospital ecosystem. The intended slice is:
 
-```mermaid
-flowchart TB
-    A["Upcoming theatre case"]
-    B["Surgeon Preference Pipeline\nwhat the case needs"]
-    C["Stock & Inventory Pipeline\nwhat is available"]
-    D["Readiness check"]
-    E["Ready"]
-    F["Check before use"]
-    G["Shortage"]
-    H["Substitution available"]
-    I["Reorder required"]
+1. Surgeon Preference tells us what a case requires.
+2. Stock Inventory tells us what the hospital has, where it is, and whether it is usable.
+3. Loan Kit Management tells us what must come from suppliers and whether it is ready.
+4. Case Readiness combines those signals into a clear status, reason, owner, and deadline.
 
-    A --> B --> D
-    A --> C --> D
-    D --> E
-    D --> F
-    D --> G
-    D --> H
-    D --> I
+The platform should avoid expanding into wider analytics until this slice is defensible with contracts, lineage, idempotency, failure handling, and deployment evidence.
 
-    classDef case fill:#FDE68A,stroke:#B45309,color:#111827,stroke-width:2px
-    classDef pref fill:#DBEAFE,stroke:#2563EB,color:#111827,stroke-width:2px
-    classDef inv fill:#DCFCE7,stroke:#16A34A,color:#111827,stroke-width:2px
-    classDef good fill:#BBF7D0,stroke:#15803D,color:#111827,stroke-width:2px
-    classDef warn fill:#FED7AA,stroke:#EA580C,color:#111827,stroke-width:2px
-    classDef bad fill:#FECACA,stroke:#DC2626,color:#111827,stroke-width:2px
-    classDef rule fill:#EDE9FE,stroke:#7C3AED,color:#111827,stroke-width:2px
+## Pipeline Pattern
 
-    class A case
-    class B pref
-    class C,D inv
-    class E good
-    class F,H,I warn
-    class G bad
+Each pipeline follows a medallion-style flow:
+
+```text
+Landing
+  preserve the original source file
+Bronze
+  log raw files, raw records, checksums, and ingestion metadata
+Silver
+  clean, standardise, validate, and enrich records
+Gold
+  publish operational outputs, analytics outputs, and dashboard-ready data
+Product workflow
+  show users current state, proposed changes, history, and exceptions
 ```
 
-Example:
+For non-technical readers: each stage makes the data more trustworthy while keeping evidence of where it came from and what changed.
 
-1. A preference card says a total knee replacement needs a specific knee system,
-   large orthopaedic set, cementing supplies, sutures, dressings, and drapes.
-2. The stock pipeline checks item availability, expiry dates, recalls,
-   sterility status, reserved stock, and substitutes.
-3. The Gold output shows whether the case is ready, needs a stock top-up, needs
-   a substitution review, or should be escalated.
+## Surgeon Preference
 
-This is the central direction of the platform: connected operational pipelines
-that help theatre teams prepare earlier and act with better information.
+Surgeon Preference automates the preference-card workflow. It starts with messy synthetic source data, passes it through the medallion pipeline, and publishes clinically aligned preference cards for frontline staff.
 
----
+Current capabilities:
 
-## Proposed Next Pipeline: Loan Kit Management
+- Generates clinically aligned synthetic preference-card data at 1000-card scale.
+- Processes source data through Landing, Bronze, Silver A, Silver B, and Gold.
+- Validates procedure-specific instruments, packs, consumables, disposables, equipment, and special instructions.
+- Writes files to MinIO locally or Azure Blob through a storage abstraction.
+- Writes metadata, audit, workflow, and operational current-card records to Postgres.
+- Bootstraps a Postgres-backed Iceberg SQL catalog foundation.
+- Serves cards through Streamlit.
+- Reads current cards from operational Postgres first, with Gold snapshot fallback.
+- Supports draft edits, draft creation, review, controlled publish, version history, rollback, access requests, user roles, and organisation scoping.
+- Exports Gold snapshots after operational publishes so object storage remains the evidence and analytics layer.
 
-**Status: Proposed and scoped; implementation has not started.**
+For implementation details, use the Surgeon Preference links in [Start Here](#start-here), especially the execution plan, DBeaver inspection guide, rollback design, and access model. The module-level `README.md` has been removed to avoid duplicate and conflicting documentation.
 
-A loan kit is a supplier-owned set of instruments, implants, trials, or related
-equipment brought into a hospital for a particular procedure or operating list.
-Unlike ordinary stock, a loan kit has a time-critical journey across the
-hospital and supplier boundary: request, confirmation, dispatch, receipt,
-contents check, decontamination or sterilisation, case allocation, use,
-reconciliation, and return.
+## Stock Inventory
 
-The proposed pipeline would combine:
+Stock Inventory connects theatre demand with stock availability and risk. In simple terms, Surgeon Preference says, "This is what the surgeon expects for the case." Stock Inventory asks, "Do we have it, where is it, and is it usable?"
 
-- scheduled case and theatre-list information
-- surgeon preference requirements
-- requested kit, implant system, component, and size information
-- supplier booking, confirmation, dispatch, and delivery events
-- goods-received and contents-check records
-- decontamination and sterilisation status
-- case allocation and readiness decisions
-- implants or components used, opened, missing, damaged, or unused
-- collection, return, discrepancy, charge, and credit records
+Current capabilities:
 
-It would turn those events into a traceable status for every kit and case, with
-clear ownership, deadlines, exceptions, and escalation worklists.
+- Generates clinically aligned synthetic stock data.
+- Models manual count files, scanner/barcode event files, and ERP-style stock balance files.
+- Tracks item catalogue, supplier, location, lot, expiry, recall, sterility, and quantity data.
+- Runs Bronze, Silver, and Gold processing locally.
+- Publishes readiness, shortage, reorder, risk, usage, cost, surgeon, and procedure outputs.
+- Provides dashboard foundations and cloud deployment scaffolding.
+- Includes quality gates and tests.
 
-### Why This Pipeline Is Important
+Key hardening still needed:
 
-Loan kits sit at a difficult operational boundary. Theatre teams depend on them,
-but the hospital does not control the whole supply chain. Information is often
-spread across booking forms, emails, phone calls, theatre lists, supplier
-systems, goods-received notes, decontamination records, and local spreadsheets.
-A kit can be described as "booked" while still being unconfirmed, incomplete,
-late, unchecked, unsterile, assigned to another case, or awaiting collection.
+- Define explicit source-of-truth and reconciliation policy between ERP, scanner events, and manual counts.
+- Strengthen temporal modelling: quantity where, when, according to which source.
+- Add stronger duplicate-event, late-event, and conflicting-balance handling.
+- Complete Azure persistent Blob/Postgres configuration, migrations, managed identities, and deployed dashboard verification.
 
-That uncertainty can cause avoidable list disruption, last-minute escalation,
-procedure delays or cancellations, duplicate bookings, missing components,
-unrecorded implant use, return disputes, and unnecessary charges. A dedicated
-pipeline matters because ordinary inventory balances cannot represent this
-time-sensitive chain of custody and responsibility.
+Substitution wording should stay governed. The platform should identify configured substitution candidates requiring authorised review; it should not imply autonomous clinical/device compatibility decisions.
 
-The pipeline would connect the platform's two existing products:
+## Loan Kit Management
 
-1. Surgeon Preference identifies the kit or implant system a case requires.
-2. Stock & Inventory determines what the hospital already holds and whether a
-   safe substitute is available.
-3. Loan Kit Management tracks the externally supplied kit from request through
-   return when hospital stock cannot meet that requirement.
+Loan Kit Management is the next operational pipeline. It has not started as implementation yet.
 
-### Questions The Pipeline Will Answer
+A loan kit is supplier-managed equipment brought in for a specific case or list. It may include trays, instruments, trials, implants, components, or procedure-specific consumables. Unlike normal stock, it has a time-critical chain of custody across supplier, goods-in, decontamination, sterilisation, theatre, use, reconciliation, and return.
 
-For upcoming cases and theatre teams:
+The MVP should answer:
 
-- Which cases require a loan kit, and exactly which kit or implant system?
-- Has the request been sent, accepted, and confirmed by the supplier?
-- What is the delivery deadline after allowing enough time for checking and
-  sterilisation?
-- Has the correct kit arrived at the correct hospital for the correct case?
-- Are all trays, instruments, implants, trials, sizes, and consumables present?
-- Is the kit checked, decontaminated, sterile, and released for use?
-- Is any case at risk because a kit is late, incomplete, damaged, or unconfirmed?
-- Who owns the next action, and when should it be escalated?
+- Which cases require a loan kit?
+- Has the request been sent, accepted, and confirmed?
+- What must arrive, by when, and for which case?
+- Has the correct kit arrived at the correct site?
+- Are trays, instruments, trials, implants, components, and consumables present?
+- Is the kit checked, decontaminated, sterile, and released?
+- Which case is at risk, why, who owns the action, and when must it be escalated?
+- What was used, opened, missing, damaged, returned, disputed, charged, or credited?
 
-For procurement, suppliers, and governance:
+Build order:
 
-- Which kits are currently on site, in use, awaiting processing, or overdue for
-  return?
-- What was used or opened, and does that agree with the supplier record?
-- Are any components missing, damaged, substituted, or disputed?
-- Which suppliers, specialties, procedures, or sites create the most delays and
-  exceptions?
-- How often are kits booked but unused, duplicated, delivered late, or returned
-  late?
-- What charges, credits, cancellations, and avoidable costs are associated with
-  each kit and case?
-- Can the full chain of custody and decision history be reconstructed for audit?
+1. Define contracts and business keys.
+2. Generate realistic synthetic booking, supplier, delivery, contents, sterilisation, usage, discrepancy, and return events.
+3. Build Landing, Bronze, Silver, and Gold with quality gates.
+4. Connect to Surgeon Preference requirements and Stock availability.
+5. Publish readiness, exception, action-owner, and return worklists.
 
-The first useful release would focus on booking, milestones, readiness, alerts,
-and return reconciliation. Predictive supplier performance and demand planning
-would come later, after the operational event history is reliable.
+## Case Readiness Target
 
----
+Case Readiness is the product layer that connects all three pipelines.
 
-## Platform Areas
+```text
+Upcoming case
+    -> required items from Surgeon Preference
+    -> internal availability from Stock Inventory
+    -> external supply status from Loan Kit Management
+    -> readiness decision
+    -> reason, owner, deadline, escalation
+```
 
-The platform is organised into three families.
+Readiness statuses should be simple:
 
-### Operational Pipelines
+```text
+READY
+AT RISK
+NOT READY
+UNKNOWN
+```
 
-These support day-to-day theatre work.
+Every readiness decision should be traceable back to source files, pipeline runs, contracts, validation results, and operational workflow events.
 
-- Surgeon Preference
-- Stock & Inventory Management
-- Case Scheduling
-- Instrument & Tray Tracking
-- Loan Kit and Instrument Management
-- Anaesthetic Workflow
-- Patient Pathway Tracking
-- Theatre Workflow Orchestration
-- Clinical Coding Support
-
-### Intelligence Pipelines
-
-These turn operational data into insight.
-
-- Theatre Utilisation
-- Turnaround Time
-- Staffing Efficiency
-- Brief and Debrief Compliance
-- Cancellation and Delay Analysis
-- Cost Per Case
-- Surgeon Performance Insights
-- Predictive Scheduling
-- Device and Implant Analytics
-
-### AI And Training Pipelines
-
-These are strategic AI-facing pipelines that build on the operational data
-foundation. They are planned around learning, simulation, robotics, and
-AI-ready surgical datasets, with strong governance and safety controls.
-
-- Surgical Video Hub
-- Procedure Segmentation
-- Skills Assessment Models
-- Robotics Integration
-- Instrument Usage Analytics
-- Simulation and Training Data
-
----
-
-## Current Repository Shape
+## Repository Shape
 
 ```text
 platform/
@@ -402,148 +198,134 @@ platform/
     operational/
       surgeon_preference/
       stock_inventory/
+      Loan Kit and Instrument Management/
     intelligence/
     ai_training/
-  core/
   shared/
+    storage/
+  core/
 
+deployment/
 docs/
 tests/
 ```
 
-The two active operational modules are:
+Active modules:
 
 - `platform/modules/operational/surgeon_preference`
 - `platform/modules/operational/stock_inventory`
 
-Each module is designed to have its own source generation, ingestion, cleaning,
-validation, publishing, dashboard, tests, and deployment path.
+Next module:
 
----
+- `platform/modules/operational/Loan Kit and Instrument Management`
 
-## Local And Cloud Direction
+## Local Development
 
-The platform is built to work locally first, then move to Azure.
+The platform is built locally first, then moved to Azure.
 
-### Local Development
-
-Used for fast learning, testing, and iteration.
+Local development uses:
 
 - synthetic data
-- local files
-- local object storage with MinIO
-- local Postgres where needed
+- local Python pipelines
 - Docker Compose
+- MinIO object storage
+- Postgres metadata and workflow state
 - Streamlit dashboards
+- pytest test suites
 
-### Azure Deployment
+For Surgeon Preference DBeaver inspection, use:
 
-Used for cloud-style execution and production practice.
+```text
+Host: 127.0.0.1
+Port: 5433
+Database: surgeon_preference
+Username: surgeon_preference_user
+Password: value of DB_PASSWORD in the module .env
+```
 
-- Azure Blob Storage for data files
-- Azure Postgres for audit and metadata
+Detailed SQL is in:
+
+```text
+platform/modules/operational/surgeon_preference/docs/local_postgres_inspection.md
+```
+
+## Azure Direction
+
+Azure is the target cloud learning and deployment path.
+
+Planned/used Azure services:
+
+- Azure Blob Storage for object storage
+- Azure Database for PostgreSQL for metadata and operational state
 - Azure Container Registry for images
-- Azure Container Apps and Container App Jobs for workloads
-- Azure Data Factory for scheduling and orchestration
-- Azure secrets and environment variables for configuration
+- Azure Container Apps for Streamlit-style apps
+- Azure Container App Jobs for batch pipelines
+- Azure Data Factory for scheduled or event-driven orchestration
+- Azure secrets/environment configuration for credentials
+- Microsoft Entra ID or Container Apps authentication for real user identity
 
-The Surgeon Preference pipeline has already proven this Azure pattern. Stock &
-Inventory should follow the same route once the local behaviour is stable.
+Current caveat: do not claim the newest code is proven in Azure until there is fresh evidence from the deployed image, Azure Blob, Azure Postgres, logs, and dashboard.
 
----
+## Evidence Still Needed
 
-## Why Synthetic Data Matters
+To make the repository stronger for review or interview use, capture evidence under a dedicated docs/evidence area:
 
-Synthetic data allows the platform to be built safely without using real
-hospital or patient information.
+- architecture screenshots
+- successful local pipeline run logs
+- successful Azure pipeline run logs
+- Streamlit screenshots
+- MinIO or Azure Blob object listings
+- Postgres table screenshots or query outputs
+- failed-run example and recovery notes
+- quality-gate outputs
+- Gold output samples
+- deployment screenshots
 
-The synthetic data is designed to be realistic enough to test important
-problems:
+The most important question the platform should be able to answer in code is:
 
-- messy spreadsheet columns
-- different file formats
-- missing or inconsistent item names
-- expired stock
-- recalled or quarantined stock
-- reserved stock
-- manual stock counts
-- barcode scanner events
-- surgeon-specific procedure demand
-- substitutions and reorder rules
-
-This makes the pipelines useful for learning, testing, and portfolio review
-while keeping the project safe.
-
----
+```text
+A file reaches Bronze successfully. Silver processes part of it and fails.
+What happens on rerun, and how do we prove Gold is not duplicated or corrupted?
+```
 
 ## Roadmap
 
-### Foundations Completed
+Immediate priorities:
 
-- build Surgeon Preference Version 1 as a local and Azure-capable data product
-- build the Stock & Inventory local medallion pipeline, dashboard foundations,
-  quality gates, metadata layer, and cloud deployment scaffolding
-- connect stock readiness logic to Surgeon Preference demand outputs
-- support local MinIO and Azure Blob Storage through one shared storage layer
-- establish automated tests for the shared layer and both operational pipelines
+1. Verify Surgeon Preference locally in Docker, MinIO, Postgres, DBeaver, and Streamlit.
+2. Deploy the latest Surgeon Preference image to Azure and capture fresh evidence.
+3. Continue hardening Stock Inventory with reconciliation, temporal modelling, and Azure verification.
+4. Define cross-pipeline contracts between Surgeon Preference and Stock Inventory.
+5. Add pipeline-run tracking, lineage, idempotency, failure handling, quarantine/dead-letter paths, and replay semantics across modules.
+6. Build Loan Kit Management MVP.
+7. Connect all three pipelines into Case Readiness.
+8. Add Infrastructure as Code after the target Azure shape is stable enough to reproduce.
 
-### Current Priorities
+Later priorities:
 
-- complete Stock & Inventory Azure hardening, including persistent Blob and
-  Postgres configuration, migrations, managed identities, and end-to-end checks
-- validate the deployed Stock & Inventory dashboard and published Gold outputs
-- finish Surgeon Preference Version 2 access, draft, review, publish, and audit
-  workflows
-- strengthen cross-pipeline contracts, operational runbooks, monitoring, and
-  deployment checks
-- complete Docker image verification for both pipelines
-
-### Next Operational Pipeline
-
-Build the Loan Kit Management MVP in stages:
-
-1. Define case, kit, supplier, booking, delivery, contents, sterilisation,
-   allocation, use, and return data contracts.
-2. Generate realistic synthetic source data and exception scenarios.
-3. Build Landing, Bronze, Silver, and Gold processing with audit metadata and
-   quality gates.
-4. Connect Surgeon Preference requirements and Stock & Inventory availability
-   to loan-kit decisions.
-5. Publish readiness, late-delivery, incomplete-kit, action-owner, and overdue-
-   return worklists through an operational dashboard.
-6. Add supplier-performance, utilisation, discrepancy, and cost reporting after
-   the core workflow is reliable.
-
-### Later Platform Expansion
-
-- add case scheduling plus instrument and tray tracking
-- add theatre utilisation, turnaround-time, cancellation, delay, and cost-per-
-  case analytics
-- introduce stronger platform-wide governance and role-based access
-- add Infrastructure-as-Code for repeatable environments
-- connect to hospital-style systems through FHIR, HL7, ERP, vendor, and device
-  integrations
-- build prediction and AI-ready datasets only after operational data quality,
-  governance, and clinical safety controls are mature
-
----
+- case scheduling
+- instrument and tray tracking
+- theatre utilisation
+- turnaround time
+- cancellation and delay analysis
+- cost per case
+- clinical coding support
+- AI-ready datasets only after operational governance and data quality are mature
 
 ## Security And Data Safety
 
 - Real patient data is not used.
 - Real hospital stock data is not used.
+- Real staff records are not used.
 - Secrets must be supplied through local environment variables or Azure secrets.
-- `.env` files should not be committed.
-- Generated data is for development, testing, and portfolio review.
-- Any move toward real data would require proper governance, data protection,
-  access control, clinical safety review, and organisation approval.
-
----
+- `.env` files must not be committed.
+- Generated data is for development, testing, demonstration, and product validation.
+- Any move toward real data would require governance, data protection review, access control, clinical safety review, and organisation approval.
+- The platform should support authorised review and audit, not autonomous clinical decision-making.
 
 ## Author
 
 Joshua Ofori Donkor
 
 - GitHub: **JoshuaOforisurg**
-- Portfolio focus: surgical operations, biomedical science, theatre workflow,
-  and healthcare data engineering
+- Portfolio focus: surgical operations, biomedical science, theatre workflow, and healthcare data engineering
