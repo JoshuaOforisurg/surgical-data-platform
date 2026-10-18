@@ -21,7 +21,10 @@ def current_preference_rows(df: pd.DataFrame) -> pd.DataFrame:
     version_source = (
         working["preference_card_version"]
         if "preference_card_version" in working.columns
-        else working.get("version_number", 1)
+        else working.get(
+            "version_number",
+            pd.Series([1] * len(working), index=working.index),
+        )
     )
     working["_sort_version"] = pd.to_numeric(version_source, errors="coerce").fillna(1)
 

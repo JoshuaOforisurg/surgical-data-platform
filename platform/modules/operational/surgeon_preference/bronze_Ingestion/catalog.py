@@ -22,6 +22,35 @@ DEFAULT_ORGANISATION_ID = "default"
 DEFAULT_ORGANISATION_NAME = "Surgeon Preference Demo"
 
 
+def assert_active_membership_roles(cur, user_email: str | None, organisation_id: str, required_roles: set[str]) -> None:
+    """Lock and validate the actor membership in the same transaction as a write."""
+    email = str(user_email or "").strip().lower()
+    org_id = _safe_organisation_id(organisation_id)
+    if not email:
+        raise PermissionError("An authenticated organisation member is required.")
+    cur.execute(
+        """
+        SELECT memberships.roles
+        FROM app_workflow.organisation_memberships memberships
+        JOIN app_workflow.organisations organisations
+          ON organisations.organisation_id = memberships.organisation_id
+        WHERE lower(memberships.user_email) = %s
+          AND memberships.organisation_id = %s
+          AND memberships.status = 'active'
+          AND organisations.status = 'active'
+        FOR SHARE OF memberships, organisations
+        """,
+        (email, org_id),
+    )
+    row = cur.fetchone()
+    actual_roles = {
+        str(role).strip().lower()
+        for role in (row.get("roles") if isinstance(row, dict) else (row[0] if row else [])) or []
+    }
+    if not row or not actual_roles.intersection({role.lower() for role in required_roles}):
+        raise PermissionError("An active membership with the required organisation role is required.")
+
+
 def _json_safe(value: Any) -> Any:
     if isinstance(value, dict):
         return {key: _json_safe(item) for key, item in value.items()}
@@ -112,6 +141,34 @@ class BronzeCatalogRepository:
                 completed_at TIMESTAMPTZ
             )
             """,
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_ingested_files_bucket_object ON bronze_raw.ingested_files(bucket, object_key)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_ingested_records_file_ordinal ON bronze_raw.ingested_records(file_id, record_ordinal)",
+            "CREATE INDEX IF NOT EXISTS idx_pipeline_runs_started ON pipeline_audit.pipeline_runs(started_at DESC)",
+            """
+            CREATE TABLE IF NOT EXISTS pipeline_audit.pipeline_run_stages (
+                run_id TEXT NOT NULL REFERENCES pipeline_audit.pipeline_runs(run_id),
+                stage_name TEXT NOT NULL,
+                status TEXT NOT NULL,
+                records_received INTEGER NOT NULL DEFAULT 0,
+                records_processed INTEGER NOT NULL DEFAULT 0,
+                records_rejected INTEGER NOT NULL DEFAULT 0,
+                error_message TEXT,
+                started_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                completed_at TIMESTAMPTZ,
+                PRIMARY KEY (run_id, stage_name)
+            )
+            """,
+            """
+            CREATE TABLE IF NOT EXISTS pipeline_audit.pipeline_run_files (
+                run_id TEXT NOT NULL REFERENCES pipeline_audit.pipeline_runs(run_id),
+                file_id UUID NOT NULL REFERENCES bronze_raw.ingested_files(file_id),
+                status TEXT NOT NULL DEFAULT 'landed',
+                record_count INTEGER NOT NULL DEFAULT 0,
+                created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (run_id, file_id)
+            )
+            """,
             """
             CREATE TABLE IF NOT EXISTS metadata_catalog.object_store_objects (
                 object_key TEXT PRIMARY KEY,
@@ -166,6 +223,7 @@ class BronzeCatalogRepository:
                 status TEXT NOT NULL DEFAULT 'pending_access',
                 default_organisation_id TEXT REFERENCES app_workflow.organisations(organisation_id),
                 auth_provider TEXT,
+                identity_subject TEXT,
                 last_seen_at TIMESTAMPTZ,
                 created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -311,6 +369,12 @@ class BronzeCatalogRepository:
             """,
             "ALTER TABLE pipeline_audit.pipeline_runs ADD COLUMN IF NOT EXISTS pipeline_version TEXT",
             "ALTER TABLE pipeline_audit.pipeline_runs ADD COLUMN IF NOT EXISTS data_product_version TEXT",
+            "ALTER TABLE pipeline_audit.pipeline_runs ADD COLUMN IF NOT EXISTS records_received INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE pipeline_audit.pipeline_runs ADD COLUMN IF NOT EXISTS records_rejected INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE pipeline_audit.pipeline_runs ADD COLUMN IF NOT EXISTS records_quarantined INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE pipeline_audit.pipeline_runs ADD COLUMN IF NOT EXISTS records_published INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE pipeline_audit.pipeline_runs ADD COLUMN IF NOT EXISTS error_count INTEGER NOT NULL DEFAULT 0",
+            "ALTER TABLE pipeline_audit.pipeline_runs ADD COLUMN IF NOT EXISTS replay_of_run_id TEXT REFERENCES pipeline_audit.pipeline_runs(run_id)",
             "ALTER TABLE metadata_catalog.gold_artifacts ADD COLUMN IF NOT EXISTS schema_version TEXT",
             "ALTER TABLE metadata_catalog.gold_artifacts ADD COLUMN IF NOT EXISTS data_product_version TEXT",
             """
@@ -325,6 +389,7 @@ class BronzeCatalogRepository:
             ),
             "ALTER TABLE app_workflow.app_users ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'pending_access'",
             "ALTER TABLE app_workflow.app_users ADD COLUMN IF NOT EXISTS auth_provider TEXT",
+            "ALTER TABLE app_workflow.app_users ADD COLUMN IF NOT EXISTS identity_subject TEXT",
             "ALTER TABLE app_workflow.app_users ADD COLUMN IF NOT EXISTS last_seen_at TIMESTAMPTZ",
             (
                 "ALTER TABLE app_workflow.access_requests ADD COLUMN IF NOT EXISTS "
@@ -387,6 +452,7 @@ class BronzeCatalogRepository:
             "CREATE INDEX IF NOT EXISTS idx_access_requests_user ON app_workflow.access_requests(user_email)",
             "CREATE INDEX IF NOT EXISTS idx_access_requests_status ON app_workflow.access_requests(status)",
             "CREATE INDEX IF NOT EXISTS idx_app_users_status ON app_workflow.app_users(status)",
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_app_users_provider_subject ON app_workflow.app_users(auth_provider, identity_subject) WHERE identity_subject IS NOT NULL",
             "CREATE INDEX IF NOT EXISTS idx_app_users_default_org ON app_workflow.app_users(default_organisation_id)",
             "CREATE INDEX IF NOT EXISTS idx_draft_reviews_org ON app_workflow.draft_reviews(organisation_id)",
             "CREATE INDEX IF NOT EXISTS idx_draft_reviews_draft_id ON app_workflow.draft_reviews(draft_id)",
@@ -416,7 +482,7 @@ class BronzeCatalogRepository:
         """
         expected_tables = {
             "bronze_raw": ["ingested_files", "ingested_records"],
-            "pipeline_audit": ["pipeline_runs"],
+            "pipeline_audit": ["pipeline_runs", "pipeline_run_stages", "pipeline_run_files"],
             "metadata_catalog": ["object_store_objects", "gold_artifacts"],
             "iceberg_catalog": ["catalog_bootstrap"],
             "app_workflow": [
@@ -676,20 +742,6 @@ class BronzeCatalogRepository:
     ) -> None:
         cur.execute(
             """
-            INSERT INTO app_workflow.organisations (
-                organisation_id,
-                organisation_name,
-                status
-            )
-            VALUES (%s, %s, 'active')
-            ON CONFLICT (organisation_id)
-            DO UPDATE SET organisation_name = EXCLUDED.organisation_name,
-                          updated_at = CURRENT_TIMESTAMP
-            """,
-            (organisation_id, organisation_name),
-        )
-        cur.execute(
-            """
             INSERT INTO app_workflow.organisation_memberships (
                 organisation_id,
                 user_email,
@@ -698,9 +750,7 @@ class BronzeCatalogRepository:
             )
             VALUES (%s, %s, %s, %s)
             ON CONFLICT (organisation_id, user_email)
-            DO UPDATE SET roles = EXCLUDED.roles,
-                          status = EXCLUDED.status,
-                          updated_at = CURRENT_TIMESTAMP
+            DO NOTHING
             """,
             (organisation_id, user_email, roles, status),
         )
@@ -709,76 +759,64 @@ class BronzeCatalogRepository:
         self,
         user_email: str,
         display_name: str,
-        roles: list[str],
-        status: str,
         auth_provider: str,
-        organisation_id: str = DEFAULT_ORGANISATION_ID,
-        organisation_name: str = DEFAULT_ORGANISATION_NAME,
+        identity_subject: str | None = None,
     ) -> Optional[Dict[str, Any]]:
         if not self.enabled:
             return None
 
         normalised_email = user_email.strip().lower()
-        safe_roles = sorted({role.strip().lower() for role in roles if role.strip()})
-        safe_organisation_id = _safe_organisation_id(organisation_id)
-        safe_organisation_name = _safe_organisation_name(organisation_name)
         if not normalised_email:
             raise ValueError("User email is required.")
+        normalised_provider = str(auth_provider or "").strip().lower() or None
+        normalised_subject = str(identity_subject or "").strip() or None
 
         with psycopg2.connect(self.settings.psycopg2_dsn) as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
-                cur.execute(
-                    """
-                    INSERT INTO app_workflow.organisations (
-                        organisation_id,
-                        organisation_name,
-                        status
+                if normalised_provider and normalised_subject:
+                    cur.execute(
+                        """
+                        SELECT user_email
+                        FROM app_workflow.app_users
+                        WHERE auth_provider = %s AND identity_subject = %s
+                        """,
+                        (normalised_provider, normalised_subject),
                     )
-                    VALUES (%s, %s, 'active')
-                    ON CONFLICT (organisation_id)
-                    DO UPDATE SET organisation_name = EXCLUDED.organisation_name,
-                                  updated_at = CURRENT_TIMESTAMP
-                    """,
-                    (safe_organisation_id, safe_organisation_name),
-                )
+                    identity_row = cur.fetchone()
+                    if identity_row and str(identity_row["user_email"]).lower() != normalised_email:
+                        raise ValueError(
+                            "This identity subject is already linked to another registry account; "
+                            "an administrator must complete account linking."
+                        )
                 cur.execute(
                     """
                     INSERT INTO app_workflow.app_users (
                         user_email,
                         display_name,
-                        roles,
-                        status,
-                        default_organisation_id,
                         auth_provider,
+                        identity_subject,
                         last_seen_at
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+                    VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)
                     ON CONFLICT (user_email)
                     DO UPDATE SET display_name = EXCLUDED.display_name,
-                                  roles = CASE
-                                      WHEN app_workflow.app_users.status = 'pending_access'
-                                           AND EXCLUDED.status = 'active'
-                                      THEN EXCLUDED.roles
-                                      ELSE app_workflow.app_users.roles
-                                  END,
-                                  status = CASE
-                                      WHEN app_workflow.app_users.status = 'pending_access'
-                                           AND EXCLUDED.status = 'active'
-                                      THEN 'active'
-                                      ELSE app_workflow.app_users.status
-                                  END,
-                                  default_organisation_id = EXCLUDED.default_organisation_id,
                                   auth_provider = EXCLUDED.auth_provider,
+                                  identity_subject = COALESCE(app_workflow.app_users.identity_subject, EXCLUDED.identity_subject),
                                   last_seen_at = CURRENT_TIMESTAMP,
                                   updated_at = CURRENT_TIMESTAMP
+                    WHERE app_workflow.app_users.identity_subject IS NULL
+                       OR EXCLUDED.identity_subject IS NULL
+                       OR (
+                           app_workflow.app_users.identity_subject = EXCLUDED.identity_subject
+                           AND COALESCE(app_workflow.app_users.auth_provider, '') = COALESCE(EXCLUDED.auth_provider, '')
+                       )
                     RETURNING
                         user_email,
                         display_name,
                         roles,
                         status,
-                        default_organisation_id AS organisation_id,
-                        %s AS organisation_name,
                         auth_provider,
+                        identity_subject,
                         created_at,
                         updated_at,
                         last_seen_at
@@ -786,27 +824,90 @@ class BronzeCatalogRepository:
                     (
                         normalised_email,
                         display_name.strip() or normalised_email,
-                        safe_roles,
-                        status,
-                        safe_organisation_id,
-                        auth_provider,
-                        safe_organisation_name,
+                        normalised_provider,
+                        normalised_subject,
                     ),
                 )
                 row = cur.fetchone()
-                self._upsert_organisation_and_membership(
-                    cur,
-                    safe_organisation_id,
-                    safe_organisation_name,
-                    normalised_email,
-                    safe_roles,
-                    status,
-                )
+                if row is None:
+                    raise ValueError(
+                        "This registry account is already linked to a different identity subject."
+                    )
             conn.commit()
 
         return dict(row) if row else None
 
-    def list_app_users(self, limit: int = 100) -> list[Dict[str, Any]]:
+    def get_user_membership(
+        self,
+        user_email: str,
+        organisation_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        if not self.enabled:
+            return None
+
+        with psycopg2.connect(self.settings.psycopg2_dsn) as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT
+                        users.user_email,
+                        users.display_name,
+                        memberships.roles,
+                        memberships.status,
+                        memberships.organisation_id,
+                        organisations.organisation_name,
+                        organisations.status AS organisation_status,
+                        users.auth_provider,
+                        memberships.created_at,
+                        memberships.updated_at
+                    FROM app_workflow.organisation_memberships memberships
+                    JOIN app_workflow.app_users users
+                      ON users.user_email = memberships.user_email
+                    JOIN app_workflow.organisations organisations
+                      ON organisations.organisation_id = memberships.organisation_id
+                    WHERE lower(memberships.user_email) = lower(%s)
+                      AND memberships.organisation_id = %s
+                      AND organisations.status = 'active'
+                    """,
+                    (user_email.strip(), _safe_organisation_id(organisation_id)),
+                )
+                row = cur.fetchone()
+
+        return dict(row) if row else None
+
+    def list_user_memberships(self, user_email: str) -> list[Dict[str, Any]]:
+        if not self.enabled:
+            return []
+
+        with psycopg2.connect(self.settings.psycopg2_dsn) as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT
+                        memberships.organisation_id,
+                        organisations.organisation_name,
+                        organisations.status AS organisation_status,
+                        memberships.roles,
+                        memberships.status,
+                        memberships.created_at,
+                        memberships.updated_at
+                    FROM app_workflow.organisation_memberships memberships
+                    JOIN app_workflow.organisations organisations
+                      ON organisations.organisation_id = memberships.organisation_id
+                    WHERE lower(memberships.user_email) = lower(%s)
+                    ORDER BY organisations.organisation_name, memberships.organisation_id
+                    """,
+                    (user_email.strip(),),
+                )
+                rows = cur.fetchall()
+
+        return [dict(row) for row in rows]
+
+    def list_app_users(
+        self,
+        organisation_id: str,
+        limit: int = 100,
+    ) -> list[Dict[str, Any]]:
         if not self.enabled:
             return []
 
@@ -817,21 +918,24 @@ class BronzeCatalogRepository:
                     SELECT
                         users.user_email,
                         users.display_name,
-                        users.roles,
-                        users.status,
-                        users.default_organisation_id AS organisation_id,
+                        memberships.roles,
+                        memberships.status,
+                        memberships.organisation_id,
                         organisations.organisation_name,
                         users.auth_provider,
                         users.created_at,
                         users.updated_at,
                         users.last_seen_at
                     FROM app_workflow.app_users users
-                    LEFT JOIN app_workflow.organisations organisations
-                        ON users.default_organisation_id = organisations.organisation_id
-                    ORDER BY users.updated_at DESC
+                    JOIN app_workflow.organisation_memberships memberships
+                      ON memberships.user_email = users.user_email
+                    JOIN app_workflow.organisations organisations
+                      ON organisations.organisation_id = memberships.organisation_id
+                    WHERE memberships.organisation_id = %s
+                    ORDER BY memberships.updated_at DESC
                     LIMIT %s
                     """,
-                    (limit,),
+                    (_safe_organisation_id(organisation_id), limit),
                 )
                 rows = cur.fetchall()
 
@@ -873,40 +977,31 @@ class BronzeCatalogRepository:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 cur.execute(
                     """
-                    INSERT INTO app_workflow.organisations (
-                        organisation_id,
-                        organisation_name,
-                        status
-                    )
-                    VALUES (%s, %s, 'active')
-                    ON CONFLICT (organisation_id)
-                    DO UPDATE SET organisation_name = EXCLUDED.organisation_name,
-                                  updated_at = CURRENT_TIMESTAMP
+                    SELECT 1
+                    FROM app_workflow.organisations
+                    WHERE organisation_id = %s AND status = 'active'
                     """,
-                    (safe_organisation_id, safe_organisation_name),
+                    (safe_organisation_id,),
                 )
+                if not cur.fetchone():
+                    raise ValueError("The requested organisation is not active or does not exist.")
                 cur.execute(
                     """
                     INSERT INTO app_workflow.app_users (
                         user_email,
                         display_name,
-                        roles,
-                        status,
-                        default_organisation_id,
                         auth_provider,
                         last_seen_at
                     )
-                    VALUES (%s, %s, ARRAY['authenticated'], 'pending_access', %s, 'access_request', CURRENT_TIMESTAMP)
+                    VALUES (%s, %s, 'access_request', CURRENT_TIMESTAMP)
                     ON CONFLICT (user_email)
                     DO UPDATE SET display_name = EXCLUDED.display_name,
-                                  default_organisation_id = EXCLUDED.default_organisation_id,
                                   last_seen_at = CURRENT_TIMESTAMP,
                                   updated_at = CURRENT_TIMESTAMP
                     """,
                     (
                         normalised_email,
                         display_name.strip() or normalised_email,
-                        safe_organisation_id,
                     ),
                 )
                 self._upsert_organisation_and_membership(
@@ -1088,6 +1183,7 @@ class BronzeCatalogRepository:
     def resolve_access_request(
         self,
         access_request_id: str,
+        organisation_id: str,
         decision: str,
         actor_email: str,
         actor_name: str,
@@ -1102,6 +1198,9 @@ class BronzeCatalogRepository:
 
         with psycopg2.connect(self.settings.psycopg2_dsn) as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                assert_active_membership_roles(
+                    cur, actor_email, organisation_id, {"admin"}
+                )
                 cur.execute(
                     """
                     SELECT
@@ -1115,9 +1214,11 @@ class BronzeCatalogRepository:
                         status
                     FROM app_workflow.access_requests
                     WHERE access_request_id = %s
+                      AND organisation_id = %s
+                      AND status = 'pending_review'
                     FOR UPDATE
                     """,
-                    (access_request_id,),
+                    (access_request_id, _safe_organisation_id(organisation_id)),
                 )
                 request_row = cur.fetchone()
                 if not request_row:
@@ -1142,25 +1243,17 @@ class BronzeCatalogRepository:
                         INSERT INTO app_workflow.app_users (
                             user_email,
                             display_name,
-                            roles,
-                            status,
-                            default_organisation_id,
                             auth_provider
                         )
-                        VALUES (%s, %s, %s, 'active', %s, 'access_request')
+                        VALUES (%s, %s, 'access_request')
                         ON CONFLICT (user_email)
                         DO UPDATE SET display_name = EXCLUDED.display_name,
-                                      roles = EXCLUDED.roles,
-                                      status = EXCLUDED.status,
-                                      default_organisation_id = EXCLUDED.default_organisation_id,
                                       auth_provider = EXCLUDED.auth_provider,
                                       updated_at = CURRENT_TIMESTAMP
                         """,
                         (
                             request_row["user_email"],
                             request_row["display_name"],
-                            approved_roles,
-                            safe_organisation_id,
                         ),
                     )
                     self._upsert_organisation_and_membership(
@@ -1170,6 +1263,16 @@ class BronzeCatalogRepository:
                         request_row["user_email"],
                         approved_roles,
                         "active",
+                    )
+                    cur.execute(
+                        """
+                        UPDATE app_workflow.organisation_memberships
+                        SET roles = %s,
+                            status = 'active',
+                            updated_at = CURRENT_TIMESTAMP
+                        WHERE organisation_id = %s AND user_email = %s
+                        """,
+                        (approved_roles, safe_organisation_id, request_row["user_email"]),
                     )
                     cur.execute(
                         """
@@ -1333,45 +1436,34 @@ class BronzeCatalogRepository:
 
         with psycopg2.connect(self.settings.psycopg2_dsn) as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                assert_active_membership_roles(
+                    cur, normalised_actor_email, safe_organisation_id, {"admin"}
+                )
                 cur.execute(
                     """
-                    INSERT INTO app_workflow.organisations (
-                        organisation_id,
-                        organisation_name,
-                        status
-                    )
-                    VALUES (%s, %s, 'active')
-                    ON CONFLICT (organisation_id)
-                    DO UPDATE SET organisation_name = EXCLUDED.organisation_name,
-                                  updated_at = CURRENT_TIMESTAMP
+                    SELECT 1
+                    FROM app_workflow.organisations
+                    WHERE organisation_id = %s AND status = 'active'
                     """,
-                    (safe_organisation_id, safe_organisation_name),
+                    (safe_organisation_id,),
                 )
+                if not cur.fetchone():
+                    raise ValueError("The requested organisation is not active or does not exist.")
                 cur.execute(
                     """
                     INSERT INTO app_workflow.app_users (
                         user_email,
                         display_name,
-                        roles,
-                        status,
-                        default_organisation_id,
                         auth_provider
                     )
-                    VALUES (%s, %s, %s, %s, %s, 'manual_admin')
+                    VALUES (%s, %s, 'manual_admin')
                     ON CONFLICT (user_email)
                     DO UPDATE SET display_name = EXCLUDED.display_name,
-                                  roles = EXCLUDED.roles,
-                                  status = EXCLUDED.status,
-                                  default_organisation_id = EXCLUDED.default_organisation_id,
                                   auth_provider = EXCLUDED.auth_provider,
                                   updated_at = CURRENT_TIMESTAMP
                     RETURNING
                         user_email,
                         display_name,
-                        roles,
-                        status,
-                        default_organisation_id AS organisation_id,
-                        %s AS organisation_name,
                         auth_provider,
                         created_at,
                         updated_at,
@@ -1380,21 +1472,24 @@ class BronzeCatalogRepository:
                     (
                         normalised_email,
                         display_name.strip() or normalised_email,
-                        safe_roles,
-                        normalised_status,
-                        safe_organisation_id,
-                        safe_organisation_name,
                     ),
                 )
-                row = cur.fetchone()
-                self._upsert_organisation_and_membership(
-                    cur,
-                    safe_organisation_id,
-                    safe_organisation_name,
-                    normalised_email,
-                    safe_roles,
-                    normalised_status,
+                cur.fetchone()
+                cur.execute(
+                    """
+                    INSERT INTO app_workflow.organisation_memberships (
+                        organisation_id, user_email, roles, status
+                    )
+                    VALUES (%s, %s, %s, %s)
+                    ON CONFLICT (organisation_id, user_email)
+                    DO UPDATE SET roles = EXCLUDED.roles,
+                                  status = EXCLUDED.status,
+                                  updated_at = CURRENT_TIMESTAMP
+                    RETURNING organisation_id, user_email, roles, status
+                    """,
+                    (safe_organisation_id, normalised_email, safe_roles, normalised_status),
                 )
+                row = cur.fetchone()
 
                 cur.execute(
                     """
@@ -1440,36 +1535,30 @@ class BronzeCatalogRepository:
 
         with psycopg2.connect(self.settings.psycopg2_dsn) as conn:
             with conn.cursor() as cur:
+                assert_active_membership_roles(
+                    cur, submitter_email, organisation_id, {"editor", "reviewer", "admin"}
+                )
                 cur.execute(
                     """
-                    INSERT INTO app_workflow.organisations (
-                        organisation_id,
-                        organisation_name,
-                        status
-                    )
-                    VALUES (%s, %s, 'active')
-                    ON CONFLICT (organisation_id)
-                    DO UPDATE SET organisation_name = EXCLUDED.organisation_name,
-                                  updated_at = CURRENT_TIMESTAMP
+                    SELECT 1 FROM app_workflow.organisations
+                    WHERE organisation_id = %s AND status = 'active'
                     """,
-                    (organisation_id, organisation_name),
+                    (organisation_id,),
                 )
+                if not cur.fetchone():
+                    raise ValueError("The draft organisation is not active or does not exist.")
                 if submitter_email:
                     cur.execute(
                         """
                         INSERT INTO app_workflow.app_users (
                             user_email,
                             display_name,
-                            roles,
-                            status,
-                            default_organisation_id,
                             auth_provider,
                             last_seen_at
                         )
-                        VALUES (%s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
+                        VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
                         ON CONFLICT (user_email)
                         DO UPDATE SET display_name = EXCLUDED.display_name,
-                                      default_organisation_id = EXCLUDED.default_organisation_id,
                                       auth_provider = EXCLUDED.auth_provider,
                                       last_seen_at = CURRENT_TIMESTAMP,
                                       updated_at = CURRENT_TIMESTAMP
@@ -1477,20 +1566,28 @@ class BronzeCatalogRepository:
                         (
                             submitter_email,
                             submitter_name,
-                            submitter_roles,
-                            "active",
-                            organisation_id,
                             draft.get("auth_provider") or "streamlit",
                         ),
                     )
-                    self._upsert_organisation_and_membership(
-                        cur,
-                        organisation_id,
-                        organisation_name,
-                        submitter_email,
-                        submitter_roles,
-                        "active",
+
+                cur.execute(
+                    """
+                    INSERT INTO app_workflow.preference_card_drafts (
+                        draft_id, organisation_id, draft_type, status,
+                        original_payload, proposed_payload,
+                        submitted_by_email, submitted_by_name, object_key, created_at
                     )
+                    VALUES (%s, %s, %s, 'pending_review', %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (draft_id) DO NOTHING
+                    """,
+                    (
+                        draft["draft_id"], organisation_id, draft["draft_type"],
+                        Json(_json_safe(draft.get("original") or {})),
+                        Json(_json_safe(draft.get("proposed") or {})),
+                        submitter_email, submitter_name, draft_object_key,
+                        draft.get("created_at") or datetime.now(UTC).isoformat(),
+                    ),
+                )
 
                 cur.execute(
                     """
@@ -1537,59 +1634,35 @@ class BronzeCatalogRepository:
 
         with psycopg2.connect(self.settings.psycopg2_dsn) as conn:
             with conn.cursor() as cur:
+                assert_active_membership_roles(
+                    cur, reviewer_email, organisation_id, {"reviewer", "admin"}
+                )
                 cur.execute(
                     """
-                    INSERT INTO app_workflow.organisations (
-                        organisation_id,
-                        organisation_name,
-                        status
-                    )
-                    VALUES (%s, %s, 'active')
-                    ON CONFLICT (organisation_id)
-                    DO UPDATE SET organisation_name = EXCLUDED.organisation_name,
-                                  updated_at = CURRENT_TIMESTAMP
+                    SELECT 1 FROM app_workflow.organisations
+                    WHERE organisation_id = %s AND status = 'active'
                     """,
-                    (organisation_id, organisation_name),
+                    (organisation_id,),
                 )
+                if not cur.fetchone():
+                    raise ValueError("The review organisation is not active or does not exist.")
                 if reviewer_email:
                     cur.execute(
                         """
                         INSERT INTO app_workflow.app_users (
                             user_email,
                             display_name,
-                            roles,
-                            status,
-                            default_organisation_id,
                             auth_provider,
                             last_seen_at
                         )
-                        VALUES (%s, %s, %s, 'active', %s, 'streamlit', CURRENT_TIMESTAMP)
+                        VALUES (%s, %s, 'streamlit', CURRENT_TIMESTAMP)
                         ON CONFLICT (user_email)
                         DO UPDATE SET display_name = EXCLUDED.display_name,
-                                      roles = CASE
-                                          WHEN app_workflow.app_users.status = 'suspended'
-                                          THEN app_workflow.app_users.roles
-                                          ELSE EXCLUDED.roles
-                                      END,
-                                      status = CASE
-                                          WHEN app_workflow.app_users.status = 'suspended'
-                                          THEN app_workflow.app_users.status
-                                          ELSE 'active'
-                                      END,
-                                      default_organisation_id = EXCLUDED.default_organisation_id,
                                       auth_provider = EXCLUDED.auth_provider,
                                       last_seen_at = CURRENT_TIMESTAMP,
                                       updated_at = CURRENT_TIMESTAMP
                         """,
-                        (reviewer_email, reviewer_name, reviewer_roles, organisation_id),
-                    )
-                    self._upsert_organisation_and_membership(
-                        cur,
-                        organisation_id,
-                        organisation_name,
-                        reviewer_email,
-                        reviewer_roles,
-                        "active",
+                        (reviewer_email, reviewer_name),
                     )
 
                 cur.execute(
@@ -1660,6 +1733,20 @@ class BronzeCatalogRepository:
 
                 cur.execute(
                     """
+                    UPDATE app_workflow.preference_card_drafts
+                    SET status = %s, reviewed_by_email = %s, reviewed_at = %s,
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE draft_id = %s AND organisation_id = %s AND status = 'pending_review'
+                    """,
+                    (
+                        {"approved": "approved_pending_publish", "needs_changes": "changes_requested",
+                         "rejected": "rejected"}[review["decision"]],
+                        reviewer_email, review["reviewed_at"], review.get("draft_id"), organisation_id,
+                    ),
+                )
+
+                cur.execute(
+                    """
                     INSERT INTO app_workflow.audit_events (
                         event_id,
                         event_type,
@@ -1694,8 +1781,26 @@ class BronzeCatalogRepository:
         event_payload = {**publish_event, "event_object_key": event_object_key}
         organisation_id = _safe_organisation_id(publish_event.get("organisation_id"))
         organisation_name = _safe_organisation_name(publish_event.get("organisation_name"))
+        card_id = publish_event.get("card_id") or None
+        version_id = publish_event.get("version_id") or publish_event.get("rollback_version_id") or None
         with psycopg2.connect(self.settings.psycopg2_dsn) as conn:
             with conn.cursor() as cur:
+                assert_active_membership_roles(
+                    cur,
+                    publish_event.get("publisher_email"),
+                    organisation_id,
+                    {"admin"},
+                )
+                if card_id or version_id:
+                    cur.execute(
+                        """
+                        SELECT 1 FROM app_workflow.preference_card_versions
+                        WHERE card_id = %s AND version_id = %s AND organisation_id = %s
+                        """,
+                        (card_id, version_id, organisation_id),
+                    )
+                    if not cur.fetchone():
+                        raise ValueError("Publish event must reference a version belonging to its card and organisation.")
                 cur.execute(
                     """
                     INSERT INTO app_workflow.organisations (
@@ -1709,6 +1814,32 @@ class BronzeCatalogRepository:
                                   updated_at = CURRENT_TIMESTAMP
                     """,
                     (organisation_id, organisation_name),
+                )
+                cur.execute(
+                    """
+                    INSERT INTO app_workflow.preference_card_publish_events (
+                        publish_id, organisation_id, card_id, version_id, draft_id,
+                        publisher_email, publisher_name, published_gold_key, latest_gold_key,
+                        event_payload, published_at
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (publish_id) DO NOTHING
+                    """,
+                    (
+                        publish_event["publish_id"], organisation_id, card_id, version_id,
+                        publish_event.get("draft_id"), publish_event.get("publisher_email"),
+                        publish_event.get("publisher"), publish_event.get("published_gold_key"),
+                        publish_event.get("latest_gold_key"), Json(_json_safe(event_payload)),
+                        publish_event["published_at"],
+                    ),
+                )
+                cur.execute(
+                    """
+                    UPDATE app_workflow.preference_card_drafts
+                    SET status = 'published', card_id = COALESCE(%s, card_id),
+                        published_at = %s, updated_at = CURRENT_TIMESTAMP
+                    WHERE draft_id = %s AND organisation_id = %s AND status = 'approved_pending_publish'
+                    """,
+                    (card_id, publish_event["published_at"], publish_event.get("draft_id"), organisation_id),
                 )
                 cur.execute(
                     """
@@ -1727,13 +1858,13 @@ class BronzeCatalogRepository:
                     """,
                     (
                         str(uuid.uuid4()),
-                        "approved_draft_published_to_gold",
+                        publish_event.get("event_type") or "approved_draft_published_to_gold",
                         organisation_id,
                         publish_event.get("publisher_email"),
                         publish_event.get("publisher"),
                         list(publish_event.get("publisher_roles") or []),
-                        "preference_card_draft",
-                        publish_event.get("draft_id"),
+                        "preference_card_draft" if publish_event.get("draft_id") else "preference_card",
+                        publish_event.get("draft_id") or card_id,
                         Json(_json_safe(event_payload)),
                     ),
                 )
@@ -1888,6 +2019,7 @@ class BronzeCatalogRepository:
         source_path: str,
         pipeline_version: Optional[str] = None,
         data_product_version: Optional[str] = None,
+        replay_of_run_id: Optional[str] = None,
     ) -> None:
         if not self.enabled:
             return
@@ -1896,17 +2028,18 @@ class BronzeCatalogRepository:
                 cur.execute(
                     """
                     INSERT INTO pipeline_audit.pipeline_runs (
-                        run_id, status, source_path, pipeline_version, data_product_version
+                        run_id, status, source_path, pipeline_version,
+                        data_product_version, replay_of_run_id
                     )
-                    VALUES (%s, %s, %s, %s, %s)
-                    ON CONFLICT (run_id)
-                    DO UPDATE SET status = EXCLUDED.status,
-                                  source_path = EXCLUDED.source_path,
-                                  pipeline_version = EXCLUDED.pipeline_version,
-                                  data_product_version = EXCLUDED.data_product_version
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (run_id) DO NOTHING
+                    RETURNING run_id
                     """,
-                    (run_id, "running", source_path, pipeline_version, data_product_version),
+                    (run_id, "running", source_path, pipeline_version,
+                     data_product_version, replay_of_run_id),
                 )
+                if cur.fetchone() is None:
+                    raise ValueError(f"Pipeline run_id already exists: {run_id}")
             conn.commit()
 
     def register_file(self, metadata: Dict[str, Any]) -> uuid.UUID:
@@ -1924,6 +2057,9 @@ class BronzeCatalogRepository:
                         size_bytes, checksum_sha256, status
                     )
                     VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (bucket, object_key) DO UPDATE
+                    SET checksum_sha256 = EXCLUDED.checksum_sha256
+                    RETURNING file_id
                     """,
                     (
                         str(file_id),
@@ -1939,8 +2075,9 @@ class BronzeCatalogRepository:
                         "landed",
                     ),
                 )
+                file_id = cur.fetchone()[0]
             conn.commit()
-        return file_id
+        return uuid.UUID(str(file_id))
 
     def write_records(
         self,
@@ -1953,7 +2090,7 @@ class BronzeCatalogRepository:
             return len(records)
 
         values = [
-            (str(uuid.uuid4()), str(file_id), run_id, idx, Json(_json_safe(record)))
+            (str(uuid.uuid5(file_id, str(idx))), str(file_id), run_id, idx, Json(_json_safe(record)))
             for idx, record in enumerate(records, start=1)
         ]
         with psycopg2.connect(self.settings.psycopg2_dsn) as conn:
@@ -1966,6 +2103,8 @@ class BronzeCatalogRepository:
                             record_id, file_id, run_id, record_ordinal, raw_payload
                         )
                         VALUES %s
+                        ON CONFLICT (file_id, record_ordinal) DO UPDATE
+                        SET raw_payload = EXCLUDED.raw_payload
                         """,
                         values,
                     )
@@ -1979,6 +2118,57 @@ class BronzeCatalogRepository:
                 )
             conn.commit()
         return len(records)
+
+    def register_run_file(self, run_id: str, file_id: uuid.UUID) -> None:
+        if not self.enabled:
+            return
+        with psycopg2.connect(self.settings.psycopg2_dsn) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO pipeline_audit.pipeline_run_files (run_id, file_id)
+                    VALUES (%s, %s)
+                    ON CONFLICT (run_id, file_id) DO NOTHING
+                    """,
+                    (run_id, str(file_id)),
+                )
+            conn.commit()
+
+    def get_run_files(self, run_id: str) -> list[dict[str, Any]]:
+        if not self.enabled:
+            raise RuntimeError("Postgres is required to replay a pipeline run.")
+        with psycopg2.connect(self.settings.psycopg2_dsn) as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT files.file_id, files.object_key, files.original_filename,
+                           files.checksum_sha256
+                    FROM pipeline_audit.pipeline_run_files run_files
+                    JOIN pipeline_audit.pipeline_runs runs USING (run_id)
+                    JOIN bronze_raw.ingested_files files USING (file_id)
+                    WHERE runs.run_id = %s AND runs.status = 'failed'
+                    ORDER BY files.object_key
+                    """,
+                    (run_id,),
+                )
+                return [dict(row) for row in cur.fetchall()]
+
+    def update_run_file(
+        self, run_id: str, file_id: uuid.UUID, status: str, record_count: int = 0
+    ) -> None:
+        if not self.enabled:
+            return
+        with psycopg2.connect(self.settings.psycopg2_dsn) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    UPDATE pipeline_audit.pipeline_run_files
+                    SET status = %s, record_count = %s, updated_at = CURRENT_TIMESTAMP
+                    WHERE run_id = %s AND file_id = %s
+                    """,
+                    (status, record_count, run_id, str(file_id)),
+                )
+            conn.commit()
 
     def update_file_status(
         self,
@@ -2009,6 +2199,10 @@ class BronzeCatalogRepository:
         gold_operational_key: Optional[str],
         gold_analytics_key: Optional[str],
         error_message: Optional[str] = None,
+        records_received: int = 0,
+        records_rejected: int = 0,
+        records_quarantined: int = 0,
+        records_published: int = 0,
     ) -> None:
         if not self.enabled:
             return
@@ -2020,6 +2214,11 @@ class BronzeCatalogRepository:
                     SET status = %s,
                         files_landed = %s,
                         records_processed = %s,
+                        records_received = %s,
+                        records_rejected = %s,
+                        records_quarantined = %s,
+                        records_published = %s,
+                        error_count = %s,
                         gold_operational_key = %s,
                         gold_analytics_key = %s,
                         error_message = %s,
@@ -2030,10 +2229,53 @@ class BronzeCatalogRepository:
                         status,
                         files_landed,
                         records_processed,
+                        records_received,
+                        records_rejected,
+                        records_quarantined,
+                        records_published,
+                        1 if status == "failed" else 0,
                         gold_operational_key,
                         gold_analytics_key,
                         error_message,
                         run_id,
                     ),
+                )
+            conn.commit()
+
+    def record_stage(
+        self,
+        run_id: str,
+        stage_name: str,
+        status: str,
+        records_received: int = 0,
+        records_processed: int = 0,
+        records_rejected: int = 0,
+        error_message: Optional[str] = None,
+        completed: bool = False,
+    ) -> None:
+        if not self.enabled:
+            return
+        with psycopg2.connect(self.settings.psycopg2_dsn) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO pipeline_audit.pipeline_run_stages (
+                        run_id, stage_name, status, records_received,
+                        records_processed, records_rejected, error_message,
+                        completed_at
+                    )
+                    VALUES (%s, %s, %s, %s, %s, %s, %s,
+                            CASE WHEN %s THEN CURRENT_TIMESTAMP ELSE NULL END)
+                    ON CONFLICT (run_id, stage_name) DO UPDATE SET
+                        status = EXCLUDED.status,
+                        records_received = EXCLUDED.records_received,
+                        records_processed = EXCLUDED.records_processed,
+                        records_rejected = EXCLUDED.records_rejected,
+                        error_message = EXCLUDED.error_message,
+                        completed_at = CASE WHEN %s THEN CURRENT_TIMESTAMP
+                                            ELSE pipeline_audit.pipeline_run_stages.completed_at END
+                    """,
+                    (run_id, stage_name, status, records_received, records_processed,
+                     records_rejected, error_message, completed, completed),
                 )
             conn.commit()

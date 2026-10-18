@@ -28,6 +28,12 @@ ROLE_CLAIM_TYPES = {
     "role",
     "http://schemas.microsoft.com/ws/2008/06/identity/claims/role",
 }
+SUBJECT_CLAIM_TYPES = {
+    "sub",
+    "oid",
+    "http://schemas.microsoft.com/identity/claims/objectidentifier",
+    "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier",
+}
 
 
 @dataclass(frozen=True)
@@ -38,6 +44,8 @@ class AppUser:
     status: str = ACTIVE_STATUS
     organisation_id: str = DEFAULT_ORGANISATION_ID
     organisation_name: str = "Surgeon Preference Demo"
+    identity_provider: str | None = None
+    identity_subject: str | None = None
 
     @property
     def is_active(self) -> bool:
@@ -153,6 +161,8 @@ def load_user_from_env(env: Mapping[str, str]) -> AppUser | None:
         or DEFAULT_ORGANISATION_ID,
         organisation_name=(env.get("APP_ORGANISATION_NAME") or "Surgeon Preference Demo").strip()
         or "Surgeon Preference Demo",
+        identity_provider=(env.get("APP_IDENTITY_PROVIDER") or "local").strip() or "local",
+        identity_subject=(env.get("APP_IDENTITY_SUBJECT") or "").strip() or None,
     )
 
 
@@ -172,15 +182,25 @@ def load_user_from_headers(headers: Mapping[str, str], env: Mapping[str, str]) -
         or principal_name
         or email
     )
-    identity_roles = _claim_values(principal, ROLE_CLAIM_TYPES)
+    identity_subject = (
+        next(iter(_claim_values(principal, SUBJECT_CLAIM_TYPES)), "")
+        or str(principal.get("userId") or "").strip()
+        or None
+    )
+    identity_provider = str(principal.get("identityProvider") or principal.get("auth_typ") or "azure").strip()
     return AppUser(
         email=email,
         display_name=str(display_name).strip() or email,
-        roles=_roles_for_email(email, env, identity_roles),
+        # Identity-provider roles establish identity context only. The current
+        # app-role registry is database-backed; membership-specific roles are
+        # part of the tenant-hardening work still to come.
+        roles=_roles_for_email(email, env),
         organisation_id=(env.get("APP_ORGANISATION_ID") or DEFAULT_ORGANISATION_ID).strip()
         or DEFAULT_ORGANISATION_ID,
         organisation_name=(env.get("APP_ORGANISATION_NAME") or "Surgeon Preference Demo").strip()
         or "Surgeon Preference Demo",
+        identity_provider=identity_provider or "azure",
+        identity_subject=identity_subject,
     )
 
 

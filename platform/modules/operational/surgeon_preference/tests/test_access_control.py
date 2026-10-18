@@ -141,6 +141,7 @@ def test_only_active_admin_can_manage_users():
 def test_azure_client_principal_header_loads_authenticated_user():
     principal = {
         "auth_typ": "aad",
+        "userId": "provider-subject-123",
         "name_typ": "name",
         "role_typ": "roles",
         "claims": [
@@ -155,14 +156,51 @@ def test_azure_client_principal_header_loads_authenticated_user():
             "X-MS-CLIENT-PRINCIPAL": encoded,
             "X-MS-CLIENT-PRINCIPAL-NAME": "Reviewer@Hospital.Org",
         },
-        {"APP_REVIEWER_ALLOWLIST": "reviewer@hospital.org"},
+        {},
     )
 
     assert user is not None
     assert user.email == "reviewer@hospital.org"
     assert user.display_name == "Theatre Reviewer"
-    assert user.roles == ("authenticated", "reviewer")
-    assert user.can_review_preferences is True
+    assert user.roles == ("authenticated",)
+    assert user.can_review_preferences is False
+    assert user.identity_provider == "aad"
+    assert user.identity_subject == "provider-subject-123"
+
+
+def test_oidc_subject_claim_is_used_when_provider_user_id_is_absent():
+    principal = {
+        "identityProvider": "oidc",
+        "claims": [
+            {"typ": "preferred_username", "val": "person@example.com"},
+            {"typ": "sub", "val": "stable-subject"},
+        ],
+    }
+    encoded = base64.b64encode(json.dumps(principal).encode("utf-8")).decode("utf-8")
+
+    user = load_user_from_headers({"x-ms-client-principal": encoded}, {})
+
+    assert user.identity_provider == "oidc"
+    assert user.identity_subject == "stable-subject"
+
+
+def test_identity_provider_role_claim_does_not_grant_app_role():
+    principal = {
+        "claims": [
+            {"typ": "preferred_username", "val": "person@example.com"},
+            {"typ": "roles", "val": "admin"},
+        ],
+    }
+    encoded = base64.b64encode(json.dumps(principal).encode("utf-8")).decode("utf-8")
+
+    user = load_user_from_headers(
+        {"X-MS-CLIENT-PRINCIPAL": encoded},
+        {},
+    )
+
+    assert user is not None
+    assert user.roles == ("authenticated",)
+    assert user.can_manage_users is False
 
 
 def test_current_user_prefers_verified_headers_over_local_env_identity():

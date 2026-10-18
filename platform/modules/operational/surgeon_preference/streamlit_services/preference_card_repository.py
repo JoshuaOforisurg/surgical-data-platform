@@ -14,6 +14,7 @@ from bronze_Ingestion.catalog import (
     DEFAULT_ORGANISATION_ID,
     DEFAULT_ORGANISATION_NAME,
     BronzeCatalogRepository,
+    assert_active_membership_roles,
 )
 from config.settings import PostgresSettings
 
@@ -26,6 +27,8 @@ APPROVED_DRAFT_STATUS = "approved_pending_publish"
 class PreferenceCardImportSummary:
     enabled: bool
     imported: int = 0
+    unchanged: int = 0
+    protected: int = 0
     organisation_id: str = DEFAULT_ORGANISATION_ID
     source_gold_key: str = ""
     message: str = ""
@@ -108,6 +111,15 @@ def normalise_gold_card_row(row: dict[str, Any]) -> dict[str, Any]:
         "version_label": _clean_text(row.get("preference_card_version_label")) or f"v{version_number}",
     }
     return normalised
+
+
+def _same_imported_card_content(current_payload: dict[str, Any], incoming: dict[str, Any]) -> bool:
+    """Ignore per-run publication time when deciding whether card content changed."""
+    current = dict(current_payload)
+    candidate = dict(incoming)
+    current.pop("gold_created_at", None)
+    candidate.pop("gold_created_at", None)
+    return current == candidate
 
 
 def current_card_rows_to_dataframe(rows: list[dict[str, Any]]) -> pd.DataFrame:
@@ -231,11 +243,27 @@ class PreferenceCardRepository:
 
         normalised_rows = [normalise_gold_card_row(dict(row)) for row in rows]
         imported_at = imported_at or datetime.now(UTC).isoformat()
+        imported = unchanged = protected = 0
 
         with psycopg2.connect(self.settings.psycopg2_dsn) as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
                 self._ensure_organisation(cur, organisation_id, organisation_name)
                 for row in normalised_rows:
+                    current = self._load_current_card_for_update(
+                        cur, organisation_id, row["card_key"]
+                    )
+                    if current:
+                        current_payload = current.get("card_payload") or {}
+                        if current.get("change_type") != "pipeline_import":
+                            protected += 1
+                            continue
+                        if _same_imported_card_content(current_payload, row):
+                            unchanged += 1
+                            continue
+                        row["version_number"] = int(current["current_version_number"]) + 1
+                        row["version_label"] = f"v{row['version_number']}"
+                        row["preference_card_version"] = row["version_number"]
+                        row["preference_card_version_label"] = row["version_label"]
                     self._upsert_current_card(
                         cur=cur,
                         row=row,
@@ -245,14 +273,20 @@ class PreferenceCardRepository:
                         imported_at=imported_at,
                         change_type="pipeline_import",
                     )
+                    imported += 1
             conn.commit()
 
         return PreferenceCardImportSummary(
             enabled=True,
-            imported=len(normalised_rows),
+            imported=imported,
+            unchanged=unchanged,
+            protected=protected,
             organisation_id=organisation_id,
             source_gold_key=source_gold_key,
-            message=f"Imported {len(normalised_rows)} current preference cards.",
+            message=(
+                f"Imported {imported}; unchanged {unchanged}; preserved staff-published "
+                f"cards {protected}."
+            ),
         )
 
     def list_current_cards(
@@ -379,6 +413,9 @@ class PreferenceCardRepository:
 
         with psycopg2.connect(self.settings.psycopg2_dsn) as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                assert_active_membership_roles(
+                    cur, publisher, organisation_id, {"admin"}
+                )
                 current_card = self._load_current_card_for_update(
                     cur,
                     organisation_id=organisation_id,
@@ -450,6 +487,9 @@ class PreferenceCardRepository:
 
         with psycopg2.connect(self.settings.psycopg2_dsn) as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                assert_active_membership_roles(
+                    cur, actor_email, organisation_id, {"admin"}
+                )
                 current = self._load_current_card_by_id_for_update(
                     cur,
                     organisation_id=organisation_id,
@@ -604,7 +644,8 @@ class PreferenceCardRepository:
                 cards.card_key,
                 cards.current_version_number,
                 versions.version_id,
-                versions.card_payload
+                versions.card_payload,
+                versions.change_type
             FROM app_workflow.preference_cards cards
             JOIN app_workflow.preference_card_versions versions
                 ON cards.current_version_id = versions.version_id

@@ -1,4 +1,5 @@
 import pytest
+from unittest.mock import MagicMock
 
 from streamlit_services.preference_card_repository import (
     PreferenceCardRepository,
@@ -6,6 +7,7 @@ from streamlit_services.preference_card_repository import (
     card_key_for_row,
     current_card_rows_to_dataframe,
     normalise_gold_card_row,
+    _same_imported_card_content,
 )
 
 
@@ -70,6 +72,18 @@ def test_normalise_gold_card_row_rejects_missing_identity():
         normalise_gold_card_row({"surgeon_name": "Mr Test Surgeon"})
 
 
+def test_import_content_comparison_ignores_only_per_run_gold_timestamp():
+    baseline = {"consumables": "Hip pack", "gold_created_at": "2026-01-01T00:00:00Z"}
+    assert _same_imported_card_content(
+        baseline,
+        {"consumables": "Hip pack", "gold_created_at": "2026-01-02T00:00:00Z"},
+    )
+    assert not _same_imported_card_content(
+        baseline,
+        {"consumables": "Knee pack", "gold_created_at": "2026-01-02T00:00:00Z"},
+    )
+
+
 def test_repository_is_noop_when_postgres_is_not_configured():
     repository = PreferenceCardRepository(settings=None)
 
@@ -115,6 +129,62 @@ def test_repository_is_noop_when_postgres_is_not_configured():
     )
     assert rollback_summary.enabled is False
     assert rollback_summary.rolled_back is False
+
+
+@pytest.mark.parametrize("organisation_id", ["hospital-a", "hospital-b"])
+def test_current_card_reads_are_scoped_to_the_requested_tenant(monkeypatch, organisation_id):
+    connection = MagicMock()
+    connection.__enter__.return_value = connection
+    cursor = connection.cursor.return_value.__enter__.return_value
+    cursor.fetchall.return_value = [{
+        "organisation_id": organisation_id,
+        "surgeon_name": f"Surgeon for {organisation_id}",
+    }]
+    monkeypatch.setattr(
+        "streamlit_services.preference_card_repository.psycopg2.connect",
+        lambda _: connection,
+    )
+    repository = PreferenceCardRepository(
+        settings=type("Settings", (), {"psycopg2_dsn": "postgresql://test"})()
+    )
+
+    rows = repository.list_current_cards(organisation_id=organisation_id)
+
+    sql, params = cursor.execute.call_args.args
+    assert "WHERE cards.organisation_id = %s" in sql
+    assert params == (organisation_id, "active", 500)
+    assert {row["organisation_id"] for row in rows} == {organisation_id}
+
+
+def test_pipeline_import_preserves_staff_published_current_card(monkeypatch):
+    connection = MagicMock()
+    connection.__enter__.return_value = connection
+    cursor = connection.cursor.return_value.__enter__.return_value
+    cursor.fetchone.return_value = {
+        "card_key": "existing-key",
+        "current_version_number": 4,
+        "card_payload": {"equipment": "Staff-approved equipment"},
+        "change_type": "draft_publish",
+    }
+    monkeypatch.setattr(
+        "streamlit_services.preference_card_repository.psycopg2.connect",
+        lambda _: connection,
+    )
+    repository = PreferenceCardRepository(
+        settings=type("Settings", (), {"psycopg2_dsn": "postgresql://test"})()
+    )
+    result = repository.import_gold_rows(
+        rows=[{"surgeon_name": "Ms Amina Clarke", "procedure": "Total Knee Replacement"}],
+        source_gold_key="gold/operational/latest/cards.csv",
+    )
+
+    assert result.imported == 0
+    assert result.protected == 1
+    assert result.unchanged == 0
+    assert not any(
+        "INSERT INTO app_workflow.preference_cards" in call.args[0]
+        for call in cursor.execute.call_args_list
+    )
 
 
 def test_current_card_rows_to_dataframe_matches_frontend_shape():

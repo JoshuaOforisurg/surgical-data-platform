@@ -1,6 +1,7 @@
 import json
 import uuid
 from datetime import UTC, datetime
+from pathlib import PurePosixPath
 from typing import Any
 
 import pandas as pd
@@ -190,7 +191,10 @@ def save_published_gold(
     timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
     published_key = f"{PUBLISHED_GOLD_PREFIX}/{timestamp}_{publish_id}/gold_operational_preference_cards.csv"
     csv_text = published_gold.to_csv(index=False)
+    json_text = published_gold.to_json(orient="records", date_format="iso", indent=2)
     storage.put_text(published_key, csv_text, "text/csv")
+    storage.put_text(str(PurePosixPath(published_key).with_suffix(".json")), json_text, "application/json")
+    storage.put_text(str(PurePosixPath(latest_gold_key).with_suffix(".json")), json_text, "application/json")
     storage.put_text(latest_gold_key, csv_text, "text/csv")
     return published_key
 

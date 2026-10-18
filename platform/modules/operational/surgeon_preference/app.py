@@ -11,6 +11,14 @@ from psycopg2.extras import RealDictCursor
 import streamlit as st
 
 from bronze_Ingestion.catalog import BronzeCatalogRepository
+from application_services.preference_drafts import submit_preference_draft
+from application_services.preference_publishing import publish_preference_draft
+from application_services.preference_queries import (
+    load_preference_cards,
+    search_preference_cards,
+)
+from application_services.preference_rollbacks import rollback_preference_card
+from application_services.preference_reviews import submit_preference_review
 from config.settings import load_settings
 from domain.clinical_reference_service import ClinicalReferenceService
 from streamlit_services.access_control import (
@@ -32,22 +40,14 @@ from streamlit_renderers.preference_card import build_preference_card, current_p
 from streamlit_services.auth_links import build_login_links, build_logout_link
 from streamlit_services.draft_review_service import (
     REVIEW_DECISION_PREFIX,
-    build_review_decision,
     draft_change_rows,
     draft_display_name,
     load_drafts,
     load_pending_drafts,
-    save_reviewed_draft,
-    save_review_payload,
 )
 from streamlit_services.publishing_service import (
     PUBLISH_EVENT_PREFIX,
-    apply_approved_draft_to_gold,
-    build_publish_event,
     load_publishable_drafts,
-    mark_draft_published,
-    save_publish_event,
-    save_published_gold,
 )
 from streamlit_services.preference_card_repository import (
     PreferenceCardRepository,
@@ -55,8 +55,11 @@ from streamlit_services.preference_card_repository import (
 )
 from streamlit_services.product_readiness_service import build_product_readiness_summary
 from streamlit_services.streamlit_service import get_storage_client
+from streamlit_services.tenant_access import membership_is_verified
 from streamlit_services.user_registry_service import (
+    choose_active_membership,
     list_access_requests,
+    list_user_memberships,
     resolve_access_request,
     submit_access_request,
     sync_user_with_registry,
@@ -89,6 +92,12 @@ ENABLE_DRAFT_REVIEWS = os.getenv("ENABLE_DRAFT_REVIEWS", "false").strip().lower(
     "on",
 }
 ENABLE_DRAFT_PUBLISHING = os.getenv("ENABLE_DRAFT_PUBLISHING", "false").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+ENABLE_PUBLIC_SYNTHETIC_DEMO = os.getenv("ENABLE_PUBLIC_SYNTHETIC_DEMO", "false").strip().lower() in {
     "1",
     "true",
     "yes",
@@ -532,35 +541,14 @@ def load_operational_postgres_data(organisation_id: str) -> pd.DataFrame | None:
     return current_card_rows_to_dataframe(rows)
 
 
-@st.cache_data(ttl=60)
 def load_current_preference_data(organisation_id: str) -> dict:
-    postgres_df = load_operational_postgres_data(organisation_id)
-    if postgres_df is not None and not postgres_df.empty:
-        return {
-            "data": postgres_df,
-            "source": "Operational database",
-            "source_layer": "Postgres",
-            "fallback_used": False,
-            "message": "Current cards loaded from app_workflow.preference_cards.",
-        }
-
-    gold_df = load_gold_data()
-    if gold_df is not None and not gold_df.empty:
-        return {
-            "data": gold_df,
-            "source": "Gold snapshot fallback",
-            "source_layer": "Gold",
-            "fallback_used": True,
-            "message": f"Current cards loaded from {GOLD_OPERATIONAL_KEY}.",
-        }
-
-    return {
-        "data": None,
-        "source": "Unavailable",
-        "source_layer": "None",
-        "fallback_used": True,
-        "message": "No operational Postgres cards or Gold snapshot were available.",
-    }
+    return load_preference_cards(
+        user=current_user,
+        organisation_id=organisation_id,
+        settings=load_settings().postgres,
+        gold_loader=load_gold_data,
+        postgres_loader=load_operational_postgres_data,
+    )
 
 
 @st.cache_data(ttl=60)
@@ -585,27 +573,16 @@ def load_preference_card_history(
     return pd.DataFrame(rows)
 
 
-def save_draft(payload: dict, submitter) -> str:
+def save_draft(payload: dict, submitter):
     block_reason = submission_block_reason(submitter, ENABLE_DRAFT_SUBMISSIONS)
     if block_reason:
         raise PermissionError(block_reason)
-
-    storage = get_storage_client()
-    timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-    draft_id = payload["draft_id"]
-    key = f"{DRAFT_PREFIX}/{timestamp}_{draft_id}.json"
-    payload.update(
-        {
-            "submitted_by": submitter.display_name,
-            "submitter_email": submitter.email,
-            "submitter_roles": list(submitter.roles),
-            "submitter_status": submitter.status,
-            "organisation_id": submitter.organisation_id,
-            "organisation_name": submitter.organisation_name,
-        }
+    return submit_preference_draft(
+        payload,
+        submitter,
+        settings=load_settings().postgres,
+        storage_factory=get_storage_client,
     )
-    storage.put_text(key, json.dumps(payload, indent=2), "application/json")
-    return key
 
 
 @st.cache_data(ttl=300)
@@ -636,42 +613,12 @@ def load_latest_run_manifest() -> dict | None:
         return None
 
 
-def _postgres_frame(settings, query: str) -> pd.DataFrame:
+def _postgres_frame(settings, query: str, params: tuple = ()) -> pd.DataFrame:
     with psycopg2.connect(settings.psycopg2_dsn) as conn:
         with conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("SET statement_timeout = '5s'")
-            cur.execute(query)
+            cur.execute(query, params)
             return pd.DataFrame(cur.fetchall())
-
-
-def record_review_in_postgres(review: dict, blob_review_key: str) -> tuple[bool, str]:
-    settings = load_settings().postgres
-    if not settings:
-        return False, "Postgres settings are not configured for this deployment."
-
-    try:
-        repository = BronzeCatalogRepository(settings)
-        repository.initialise()
-        repository.record_draft_review_decision(review, blob_review_key)
-    except psycopg2.Error as exc:
-        return False, str(exc).strip()
-
-    return True, "Review decision written to the Postgres workflow audit."
-
-
-def record_publish_in_postgres(publish_event: dict, publish_event_key: str) -> tuple[bool, str]:
-    settings = load_settings().postgres
-    if not settings:
-        return False, "Postgres settings are not configured for this deployment."
-
-    try:
-        repository = BronzeCatalogRepository(settings)
-        repository.initialise()
-        repository.record_publish_event(publish_event, publish_event_key)
-    except psycopg2.Error as exc:
-        return False, str(exc).strip()
-
-    return True, "Publish event written to the Postgres workflow audit."
 
 
 def sync_published_gold_to_operational_postgres(
@@ -695,83 +642,8 @@ def sync_published_gold_to_operational_postgres(
     return True, summary.message
 
 
-def publish_draft_to_operational_postgres(
-    draft: dict,
-    publisher: str,
-    publisher_email: str,
-    published_at: str,
-) -> tuple[bool, str]:
-    settings = load_settings().postgres
-    if not settings:
-        return False, "Postgres settings are not configured for this deployment."
-
-    try:
-        summary = PreferenceCardRepository(settings).publish_approved_draft(
-            draft=draft,
-            publisher=publisher_email or publisher,
-            editable_fields=EDITABLE_FIELDS,
-            source_gold_key=GOLD_OPERATIONAL_KEY,
-            organisation_id=active_organisation_id,
-            published_at=published_at,
-        )
-    except (psycopg2.Error, ValueError) as exc:
-        return False, str(exc).strip()
-
-    return summary.published, summary.message
-
-
-def rollback_preference_card_to_version(
-    card_id: str,
-    source_version_id: str,
-    reason: str,
-) -> tuple[bool, str, dict]:
-    settings = load_settings().postgres
-    if not settings:
-        return False, "Postgres settings are not configured for this deployment.", {}
-    if current_user is None:
-        return False, "No authenticated administrator identity was found.", {}
-
-    try:
-        summary = PreferenceCardRepository(settings).rollback_to_version(
-            card_id=card_id,
-            source_version_id=source_version_id,
-            actor_email=current_user.email,
-            actor_name=current_user.display_name,
-            actor_roles=list(current_user.roles),
-            reason=reason,
-            source_gold_key=GOLD_OPERATIONAL_KEY,
-            organisation_id=active_organisation_id,
-        )
-    except (psycopg2.Error, ValueError) as exc:
-        return False, str(exc).strip(), {}
-
-    return summary.rolled_back, summary.message, {
-        "card_id": summary.card_id,
-        "rollback_version_id": summary.rollback_version_id,
-        "source_version_id": summary.source_version_id,
-        "from_version_number": summary.from_version_number,
-        "to_version_number": summary.to_version_number,
-        "organisation_id": summary.organisation_id,
-    }
-
-
-def record_draft_submission_in_postgres(draft: dict, draft_key: str) -> tuple[bool, str]:
-    settings = load_settings().postgres
-    if not settings:
-        return False, "Postgres settings are not configured for this deployment."
-
-    try:
-        repository = BronzeCatalogRepository(settings)
-        repository.initialise()
-        repository.record_draft_submission(draft, draft_key)
-    except psycopg2.Error as exc:
-        return False, str(exc).strip()
-
-    return True, "Draft submission written to the Postgres workflow audit."
-
-
 @st.cache_data(ttl=30)
-def load_postgres_metadata() -> dict:
+def load_postgres_metadata(organisation_id: str) -> dict:
     settings = load_settings().postgres
     repository = BronzeCatalogRepository(settings)
     health = repository.healthcheck(initialise=False)
@@ -881,9 +753,11 @@ def load_postgres_metadata() -> dict:
                 reviewed_at,
                 blob_review_key
             FROM app_workflow.draft_reviews
+            WHERE organisation_id = %s
             ORDER BY reviewed_at DESC
             LIMIT 50
             """,
+            (organisation_id,),
         )
         metadata["workflow_audit"] = _postgres_frame(
             settings,
@@ -898,9 +772,11 @@ def load_postgres_metadata() -> dict:
                 entity_id,
                 created_at
             FROM app_workflow.audit_events
+            WHERE organisation_id = %s
             ORDER BY created_at DESC
             LIMIT 50
             """,
+            (organisation_id,),
         )
         metadata["app_users"] = _postgres_frame(
             settings,
@@ -908,16 +784,20 @@ def load_postgres_metadata() -> dict:
             SELECT
                 user_email,
                 display_name,
-                roles,
-                status,
-                default_organisation_id,
-                auth_provider,
-                last_seen_at,
-                updated_at
-            FROM app_workflow.app_users
-            ORDER BY updated_at DESC
+                memberships.roles,
+                memberships.status,
+                memberships.organisation_id,
+                users.auth_provider,
+                users.last_seen_at,
+                memberships.updated_at
+            FROM app_workflow.app_users users
+            JOIN app_workflow.organisation_memberships memberships
+              ON memberships.user_email = users.user_email
+            WHERE memberships.organisation_id = %s
+            ORDER BY memberships.updated_at DESC
             LIMIT 100
             """,
+            (organisation_id,),
         )
         metadata["organisations"] = _postgres_frame(
             settings,
@@ -929,9 +809,11 @@ def load_postgres_metadata() -> dict:
                 created_at,
                 updated_at
             FROM app_workflow.organisations
+            WHERE organisation_id = %s
             ORDER BY updated_at DESC
             LIMIT 100
             """,
+            (organisation_id,),
         )
         metadata["organisation_memberships"] = _postgres_frame(
             settings,
@@ -944,9 +826,11 @@ def load_postgres_metadata() -> dict:
                 created_at,
                 updated_at
             FROM app_workflow.organisation_memberships
+            WHERE organisation_id = %s
             ORDER BY updated_at DESC
             LIMIT 100
             """,
+            (organisation_id,),
         )
         metadata["access_requests"] = _postgres_frame(
             settings,
@@ -965,9 +849,11 @@ def load_postgres_metadata() -> dict:
                 created_at,
                 updated_at
             FROM app_workflow.access_requests
+            WHERE organisation_id = %s
             ORDER BY created_at DESC
             LIMIT 100
             """,
+            (organisation_id,),
         )
         metadata["operational_current_cards"] = _postgres_frame(
             settings,
@@ -988,9 +874,11 @@ def load_postgres_metadata() -> dict:
             FROM app_workflow.preference_cards cards
             JOIN app_workflow.preference_card_versions versions
                 ON cards.current_version_id = versions.version_id
+            WHERE cards.organisation_id = %s
             ORDER BY cards.updated_at DESC, cards.surgeon_name, cards.procedure_name
             LIMIT 100
             """,
+            (organisation_id,),
         )
         metadata["operational_version_summary"] = _postgres_frame(
             settings,
@@ -1004,9 +892,11 @@ def load_postgres_metadata() -> dict:
             FROM app_workflow.preference_card_versions versions
             JOIN app_workflow.preference_cards cards
                 ON cards.card_id = versions.card_id
+            WHERE cards.organisation_id = %s
             GROUP BY cards.organisation_id, COALESCE(versions.change_type, 'unknown'), versions.is_current
             ORDER BY latest_version_created_at DESC
             """,
+            (organisation_id,),
         )
         metadata["operational_recent_versions"] = _postgres_frame(
             settings,
@@ -1027,9 +917,11 @@ def load_postgres_metadata() -> dict:
             FROM app_workflow.preference_card_versions versions
             JOIN app_workflow.preference_cards cards
                 ON cards.card_id = versions.card_id
+            WHERE cards.organisation_id = %s
             ORDER BY versions.created_at DESC, versions.version_number DESC
             LIMIT 100
             """,
+            (organisation_id,),
         )
 
     return metadata
@@ -1042,24 +934,143 @@ def detect_auth_provider(headers) -> str:
     return "local_env"
 
 
-current_user = load_current_user(os.environ, st.context.headers)
-current_user, user_registry_warning = sync_user_with_registry(
-    current_user,
-    load_settings().postgres,
-    detect_auth_provider(st.context.headers),
+identity_user = load_current_user(os.environ, st.context.headers)
+postgres_settings = load_settings().postgres
+membership_rows, membership_error = list_user_memberships(
+    postgres_settings,
+    identity_user.email if identity_user else None,
 )
+active_membership_rows = [
+    row
+    for row in membership_rows
+    if str(row.get("status") or "").lower() == ACTIVE_STATUS
+    and str(row.get("organisation_status") or "").lower() == ACTIVE_STATUS
+]
+configured_organisation_id = (
+    os.getenv("APP_ORGANISATION_ID", DEFAULT_ORGANISATION_ID).strip()
+    or DEFAULT_ORGANISATION_ID
+)
+selected_membership = choose_active_membership(
+    active_membership_rows,
+    st.session_state.get("workspace_selection"),
+    configured_organisation_id,
+)
+
+if identity_user and active_membership_rows:
+    membership_options = {
+        str(row["organisation_id"]): row for row in active_membership_rows
+    }
+    if len(membership_options) > 1:
+        selected_id = str(selected_membership["organisation_id"])
+        if st.session_state.get("workspace_selection") not in membership_options:
+            st.session_state["workspace_selection"] = selected_id
+        selected_id = st.selectbox(
+            "Workspace",
+            list(membership_options),
+            format_func=lambda value: (
+                f"{membership_options[value]['organisation_name']} ({value})"
+            ),
+            key="workspace_selection",
+        )
+        selected_membership = membership_options[selected_id]
+
+current_user = None
+user_registry_warning = membership_error
+if identity_user and not membership_error:
+    requested_organisation_id = (
+        str(selected_membership["organisation_id"])
+        if selected_membership
+        else configured_organisation_id
+    )
+    current_user, user_registry_warning = sync_user_with_registry(
+        identity_user,
+        postgres_settings,
+        detect_auth_provider(st.context.headers),
+        organisation_id=requested_organisation_id,
+    )
+
+membership_verified = membership_is_verified(current_user, selected_membership)
 active_organisation_id = (
-    current_user.organisation_id if current_user else os.getenv("APP_ORGANISATION_ID", DEFAULT_ORGANISATION_ID)
-).strip() or DEFAULT_ORGANISATION_ID
+    str(selected_membership["organisation_id"])
+    if membership_verified and selected_membership
+    else configured_organisation_id
+)
 active_organisation_name = (
-    current_user.organisation_name
-    if current_user
-    else os.getenv("APP_ORGANISATION_NAME", "Surgeon Preference Demo")
-).strip() or "Surgeon Preference Demo"
+    str(selected_membership["organisation_name"])
+    if membership_verified and selected_membership
+    else os.getenv("APP_ORGANISATION_NAME", "Surgeon Preference Demo").strip()
+    or "Surgeon Preference Demo"
+)
 draft_submission_disabled_reason = submission_block_reason(current_user, ENABLE_DRAFT_SUBMISSIONS)
 
 if user_registry_warning:
     st.warning(user_registry_warning)
+
+if not membership_verified:
+    st.title("Surgeon Preference")
+    render_account_bar(
+        current_user,
+        "Viewing synthetic demo data only. Sign in and request organisation access to use a workspace.",
+    )
+    if identity_user and current_user and postgres_settings:
+        st.subheader("Request organisation access")
+        with st.form("workspace_access_request_form"):
+            requested_organisation = st.text_input(
+                "Organisation or hospital",
+                value=active_organisation_name,
+            )
+            requested_roles = st.multiselect(
+                "Requested access",
+                [EDITOR_ROLE, REVIEWER_ROLE],
+                default=[EDITOR_ROLE],
+            )
+            request_reason = st.text_area(
+                "Reason",
+                placeholder="Describe your role in maintaining theatre preference cards.",
+            )
+            request_submitted = st.form_submit_button("Submit Access Request")
+        if request_submitted:
+            access_request, error_message = submit_access_request(
+                settings=postgres_settings,
+                user=current_user,
+                requested_roles=requested_roles,
+                requested_organisation_name=requested_organisation,
+                reason=request_reason,
+            )
+            if error_message:
+                st.error(error_message)
+            else:
+                st.success("Access request submitted. Access remains pending until approved.")
+                st.caption(f"Request ID: {access_request['access_request_id']}")
+    elif identity_user and membership_error:
+        st.info("Organisation access could not be verified. Tenant data is unavailable.")
+
+    if ENABLE_PUBLIC_SYNTHETIC_DEMO:
+        st.subheader("Synthetic preference-card demo")
+        demo_df = load_gold_data()
+        if demo_df is not None and not demo_df.empty:
+            demo_columns = [
+                column
+                for column in [
+                    "surgeon_name",
+                    "specialty",
+                    "procedure",
+                    "instrument_system",
+                    "instrument_set",
+                    "consumables",
+                    "disposables",
+                    "implants",
+                    "special_instructions",
+                ]
+                if column in demo_df.columns
+            ]
+            st.dataframe(demo_df[demo_columns], width="stretch", hide_index=True)
+        else:
+            st.info("Synthetic demo data is not currently available.")
+    else:
+        st.info("No active organisation membership was found. Tenant data is not available.")
+    render_project_footer()
+    st.stop()
 
 
 # ----------------------------
@@ -1198,7 +1209,7 @@ def render_product_readiness() -> None:
     readiness = build_product_readiness_summary(
         current_gold=current_df,
         drafts=drafts,
-        metadata=load_postgres_metadata(),
+        metadata=load_postgres_metadata(active_organisation_id),
         latest_manifest=load_latest_run_manifest(),
     )
     status_labels = {
@@ -1368,57 +1379,38 @@ def render_card_history(surgeon_name: str, procedure_name: str | None) -> None:
         )
 
         if rollback_submitted:
-            ok, message, rollback_context = rollback_preference_card_to_version(
-                card_id=str(selected_version.get("card_id")),
-                source_version_id=str(selected_version.get("version_id")),
-                reason=reason,
-            )
-            if not ok:
-                st.error(message)
-                return
+            try:
+                rollback_result = rollback_preference_card(
+                    card_id=str(selected_version.get("card_id")),
+                    source_version_id=str(selected_version.get("version_id")),
+                    reason=reason,
+                    actor=current_user,
+                    organisation_id=active_organisation_id,
+                    organisation_name=active_organisation_name,
+                    settings=load_settings().postgres,
+                    storage_factory=get_storage_client,
+                    source_gold_key=GOLD_OPERATIONAL_KEY,
+                )
+                if not rollback_result.rolled_back:
+                    st.error(rollback_result.error or rollback_result.message)
+                    return
 
-            load_operational_postgres_data.clear()
-            load_current_preference_data.clear()
-            postgres_current = load_operational_postgres_data(active_organisation_id)
-            if postgres_current is None or postgres_current.empty:
-                st.error("Rollback succeeded, but current cards could not be reloaded for Gold export.")
-                return
-
-            storage = get_storage_client()
-            rollback_event = {
-                "publish_id": str(uuid.uuid4()),
-                "event_type": "preference_card_rollback_published",
-                "organisation_id": active_organisation_id,
-                "organisation_name": active_organisation_name,
-                "publisher": current_user.display_name if current_user else "",
-                "publisher_email": current_user.email if current_user else "",
-                "publisher_roles": list(current_user.roles) if current_user else [],
-                "published_at": datetime.now(UTC).isoformat(),
-                "latest_gold_key": GOLD_OPERATIONAL_KEY,
-                "row_count": len(postgres_current),
-                "surgeon_name": surgeon_name,
-                "procedure": procedure_name,
-                "rollback_reason": reason.strip(),
-                **rollback_context,
-            }
-            published_gold_key = save_published_gold(
-                storage=storage,
-                published_gold=current_preference_rows(postgres_current),
-                publish_id=rollback_event["publish_id"],
-                latest_gold_key=GOLD_OPERATIONAL_KEY,
-            )
-            rollback_event["published_gold_key"] = published_gold_key
-            rollback_event_key = save_publish_event(storage, rollback_event)
-
-            load_gold_data.clear()
-            load_operational_postgres_data.clear()
-            load_current_preference_data.clear()
-            load_preference_card_history.clear()
-            load_postgres_metadata.clear()
-
-            st.success(message)
-            st.success(f"Gold snapshot refreshed: {published_gold_key}")
-            st.success(f"Rollback event archived: {rollback_event_key}")
+                load_gold_data.clear()
+                load_operational_postgres_data.clear()
+                load_preference_card_history.clear()
+                load_postgres_metadata.clear()
+                st.success(rollback_result.message)
+                if rollback_result.published_gold_key:
+                    st.success(f"Gold snapshot refreshed: {rollback_result.published_gold_key}")
+                if rollback_result.publish_event_key:
+                    st.success(f"Rollback event archived: {rollback_result.publish_event_key}")
+                if not rollback_result.audit_saved:
+                    st.warning(
+                        f"Rollback needs reconciliation at {rollback_result.failure_stage}: "
+                        f"{rollback_result.error or 'The Postgres audit was not saved.'}"
+                    )
+            except (PermissionError, ValueError) as exc:
+                st.error(str(exc))
 
 
 with overview_tab:
@@ -1426,64 +1418,61 @@ with overview_tab:
 
 
 with view_tab:
-    search_term = st.text_input("Search surgeon or procedure", key="card_search")
-    filtered_df = current_df.copy()
-    if search_term:
-        search_mask = pd.Series(False, index=filtered_df.index)
-        for search_column in ["surgeon_name", "procedure", "specialty", "hospital"]:
-            if search_column in filtered_df.columns:
-                search_mask = search_mask | filtered_df[search_column].astype(str).str.contains(
-                    search_term,
-                    case=False,
-                    na=False,
-                )
-        filtered_df = filtered_df[search_mask]
+    search_surgeon_col, search_procedure_col = st.columns(2)
+    with search_surgeon_col:
+        surgeon_query = st.text_input("Search surgeon", key="card_search_surgeon")
+    with search_procedure_col:
+        procedure_query = st.text_input("Search procedure", key="card_search_procedure")
+    filtered_df = search_preference_cards(current_df, surgeon_query, procedure_query)
+    st.caption(f"{len(filtered_df)} matching preference cards")
 
-    filtered_surgeons = filtered_df["surgeon_name"].dropna().unique().tolist()
-    if not filtered_surgeons:
-        st.warning("No matching preference cards found.")
-    else:
-        selected_surgeon = st.selectbox("Select surgeon", filtered_surgeons, key="view_surgeon")
-        selected_procedure = None
+    search_signature = (surgeon_query.strip().casefold(), procedure_query.strip().casefold())
+    if st.session_state.get("card_search_signature") != search_signature:
+        st.session_state.pop("view_card_pair", None)
+        st.session_state["card_search_signature"] = search_signature
 
-        surgeon_df = filtered_df[filtered_df["surgeon_name"] == selected_surgeon]
-        if "procedure" in surgeon_df.columns:
-            procedures = surgeon_df["procedure"].dropna().unique().tolist()
-            if procedures:
-                selected_procedure = st.selectbox(
-                    "Select procedure",
-                    ["All procedures"] + procedures,
-                )
-
-        procedure_filter = None if selected_procedure == "All procedures" else selected_procedure
-        card = build_preference_card(current_df, selected_surgeon, procedure_filter)
-
-        if not card:
-            st.warning("No data found for surgeon")
-        else:
-            render_card(card)
-            if procedure_filter:
-                render_card_history(selected_surgeon, procedure_filter)
-
-        st.subheader("Matching rows")
-        summary_columns = [
-            column
-            for column in [
-                "surgeon_name",
-                "hospital",
-                "specialty",
-                "procedure",
-                "procedure_id",
-                "readiness_status",
-                "confidence",
-            ]
-            if column in surgeon_df.columns
+    summary_columns = [
+        column
+        for column in [
+            "surgeon_name",
+            "hospital",
+            "specialty",
+            "procedure",
+            "procedure_id",
+            "readiness_status",
+            "confidence",
         ]
+        if column in filtered_df.columns
+    ]
+    if not filtered_df.empty:
         st.dataframe(
-            surgeon_df[summary_columns],
+            filtered_df[summary_columns],
             width="stretch",
             hide_index=True,
         )
+
+    card_pairs = list(
+        filtered_df[["surgeon_name", "procedure"]]
+        .dropna()
+        .drop_duplicates()
+        .itertuples(index=False, name=None)
+    )
+    if not card_pairs:
+        st.warning("No matching preference cards found.")
+    else:
+        selected_surgeon, selected_procedure = st.selectbox(
+            "Open preference card",
+            card_pairs,
+            format_func=lambda pair: f"{pair[0]} - {pair[1]}",
+            key="view_card_pair",
+        )
+        card = build_preference_card(filtered_df, selected_surgeon, selected_procedure)
+
+        if not card:
+            st.warning("No preference card found for this surgeon and procedure.")
+        else:
+            render_card(card)
+            render_card_history(selected_surgeon, selected_procedure)
 
 
 with edit_tab:
@@ -1536,17 +1525,16 @@ with edit_tab:
                 "source_gold_key": GOLD_OPERATIONAL_KEY,
             }
             try:
-                key = save_draft(draft, current_user)
-                postgres_ok, postgres_message = record_draft_submission_in_postgres(draft, key)
-                if postgres_ok:
+                submission = save_draft(draft, current_user)
+                if submission.audit_saved:
                     load_postgres_metadata.clear()
-                st.success(f"Draft saved: {key}")
-                if postgres_ok:
-                    st.success(postgres_message)
+                st.success(f"Draft saved: {submission.object_key}")
+                if submission.audit_saved:
+                    st.success("Draft audit recorded in Postgres.")
                 else:
                     st.warning(
                         "The draft was saved to object storage, but the Postgres workflow "
-                        f"audit was not written: {postgres_message}"
+                        f"audit was not written: {submission.audit_error}"
                     )
             except PermissionError as exc:
                 st.error(str(exc))
@@ -1596,17 +1584,16 @@ with create_tab:
             "source_gold_key": GOLD_OPERATIONAL_KEY,
         }
         try:
-            key = save_draft(draft, current_user)
-            postgres_ok, postgres_message = record_draft_submission_in_postgres(draft, key)
-            if postgres_ok:
+            submission = save_draft(draft, current_user)
+            if submission.audit_saved:
                 load_postgres_metadata.clear()
-            st.success(f"Draft saved: {key}")
-            if postgres_ok:
-                st.success(postgres_message)
+            st.success(f"Draft saved: {submission.object_key}")
+            if submission.audit_saved:
+                st.success("Draft audit recorded in Postgres.")
             else:
                 st.warning(
                     "The draft was saved to object storage, but the Postgres workflow "
-                    f"audit was not written: {postgres_message}"
+                    f"audit was not written: {submission.audit_error}"
                 )
         except PermissionError as exc:
             st.error(str(exc))
@@ -1687,32 +1674,29 @@ with review_tab:
 
         if review_submitted:
             try:
-                review = build_review_decision(
+                review_result = submit_preference_review(
                     draft=selected_draft,
-                    reviewer=current_user.display_name if current_user else reviewer,
+                    reviewer=current_user,
                     decision=decision,
                     comments=comments,
-                    reviewer_email=current_user.email if current_user else "",
-                    reviewer_roles=current_user.roles if current_user else (),
                     organisation_id=active_organisation_id,
                     organisation_name=active_organisation_name,
+                    settings=load_settings().postgres,
+                    storage_factory=lambda: storage,
                 )
-                review_key = save_review_payload(storage, review)
-                updated_draft = save_reviewed_draft(storage, selected_draft, review, review_key)
-                postgres_ok, postgres_message = record_review_in_postgres(review, review_key)
-                if postgres_ok:
+                if review_result.audit_saved:
                     load_postgres_metadata.clear()
 
-                st.success(f"Review decision archived: {review_key}")
-                st.success(f"Draft moved to status: {updated_draft['status']}")
-                if postgres_ok:
-                    st.success(postgres_message)
+                st.success(f"Review decision archived: {review_result.review_object_key}")
+                st.success(f"Draft moved to status: {review_result.updated_draft['status']}")
+                if review_result.audit_saved:
+                    st.success("Review decision recorded in the Postgres workflow audit.")
                 else:
                     st.warning(
                         "The review was saved to object storage, but the Postgres workflow "
-                        f"audit was not written: {postgres_message}"
+                        f"audit was not written: {review_result.audit_error}"
                     )
-            except ValueError as exc:
+            except (PermissionError, ValueError) as exc:
                 st.error(str(exc))
 
 
@@ -1803,109 +1787,42 @@ with publish_tab:
             else:
                 try:
                     published_at = datetime.now(UTC).isoformat()
-                    publisher_name = current_user.display_name if current_user else publisher
-                    publisher_email = current_user.email if current_user else ""
-                    operational_publish_ok, operational_publish_message = (
-                        publish_draft_to_operational_postgres(
-                            draft=selected_publish_draft,
-                            publisher=publisher_name,
-                            publisher_email=publisher_email,
-                            published_at=published_at,
-                        )
-                    )
-
-                    if operational_publish_ok:
-                        load_operational_postgres_data.clear()
-                        load_current_preference_data.clear()
-                        postgres_current = load_operational_postgres_data(active_organisation_id)
-                        if postgres_current is None or postgres_current.empty:
-                            raise ValueError(
-                                "Operational publish succeeded, but current cards could not be reloaded."
-                            )
-                        published_gold = current_preference_rows(postgres_current).copy()
-                    else:
-                        published_gold = apply_approved_draft_to_gold(
-                            current_gold=current_df,
-                            draft=selected_publish_draft,
-                            publisher=publisher_name,
-                            editable_fields=EDITABLE_FIELDS,
-                            published_at=published_at,
-                        )
-                    draft_context_event = build_publish_event(
+                    publish_result = publish_preference_draft(
                         draft=selected_publish_draft,
-                        publisher=publisher_name,
-                        publisher_email=publisher_email,
-                        publisher_roles=current_user.roles if current_user else (),
-                        published_gold_key="",
-                        latest_gold_key=GOLD_OPERATIONAL_KEY,
-                        row_count=len(published_gold),
-                        published_at=published_at,
+                        publisher=current_user,
                         organisation_id=active_organisation_id,
                         organisation_name=active_organisation_name,
+                        settings=load_settings().postgres,
+                        storage_factory=lambda: storage,
+                        editable_fields=EDITABLE_FIELDS,
+                        source_gold_key=GOLD_OPERATIONAL_KEY,
+                        published_at=published_at,
                     )
-                    published_gold_key = save_published_gold(
-                        storage=storage,
-                        published_gold=published_gold,
-                        publish_id=draft_context_event["publish_id"],
-                        latest_gold_key=GOLD_OPERATIONAL_KEY,
-                    )
-                    publish_event = {
-                        **draft_context_event,
-                        "published_gold_key": published_gold_key,
-                    }
-                    publish_event_key = save_publish_event(storage, publish_event)
-                    updated_draft = mark_draft_published(
-                        storage=storage,
-                        draft=selected_publish_draft,
-                        publish_event=publish_event,
-                        publish_event_key=publish_event_key,
-                    )
-                    postgres_ok, postgres_message = record_publish_in_postgres(
-                        publish_event,
-                        publish_event_key,
-                    )
-                    if operational_publish_ok:
-                        operational_sync_ok = True
-                        operational_sync_message = operational_publish_message
-                    else:
-                        operational_sync_ok, operational_sync_message = (
-                            sync_published_gold_to_operational_postgres(
-                                published_gold=published_gold,
-                                source_gold_key=GOLD_OPERATIONAL_KEY,
-                                imported_by=publisher_email or publisher_name,
-                            )
+                    if not publish_result.operational_published:
+                        raise ValueError(
+                            "The preference was not published because the operational Postgres update "
+                            f"failed: {publish_result.error or publish_result.operational_message}"
                         )
+
+                    load_operational_postgres_data.clear()
                     load_gold_data.clear()
                     load_operational_postgres_data.clear()
-                    load_current_preference_data.clear()
                     load_preference_card_history.clear()
                     load_postgres_metadata.clear()
 
-                    st.success(f"Published Gold version: {published_gold_key}")
-                    st.success(f"Publish event archived: {publish_event_key}")
-                    st.success(f"Draft moved to status: {updated_draft['status']}")
-                    if operational_publish_ok:
-                        st.success(f"Operational publish completed: {operational_publish_message}")
+                    if publish_result.published_gold_key:
+                        st.success(f"Published Gold version: {publish_result.published_gold_key}")
+                    if publish_result.publish_event_key:
+                        st.success(f"Publish event archived: {publish_result.publish_event_key}")
+                    if publish_result.updated_draft:
+                        st.success(f"Draft moved to status: {publish_result.updated_draft['status']}")
+                    st.success(f"Operational publish completed: {publish_result.operational_message}")
+                    if publish_result.audit_saved:
+                        st.success("Publish event recorded in the Postgres workflow audit.")
                     else:
-                        st.warning(
-                            "Operational Postgres publish was not used; the app published through "
-                            f"the Gold fallback path: {operational_publish_message}"
-                        )
-                    if postgres_ok:
-                        st.success(postgres_message)
-                    else:
-                        st.warning(
-                            "The publish was saved to object storage, but the Postgres workflow "
-                            f"audit was not written: {postgres_message}"
-                        )
-                    if operational_sync_ok:
-                        st.success(f"Operational current cards synced: {operational_sync_message}")
-                    else:
-                        st.warning(
-                            "The publish was saved to Gold, but operational current-card sync "
-                            f"did not complete: {operational_sync_message}"
-                        )
-                except ValueError as exc:
+                        st.warning(f"Publish needs reconciliation at {publish_result.failure_stage}: "
+                                   f"{publish_result.error or 'Postgres workflow audit was not saved.'}")
+                except (PermissionError, ValueError) as exc:
                     st.error(str(exc))
 
 
@@ -2086,7 +2003,7 @@ with access_tab:
             else:
                 st.info("No pending access requests for this workspace.")
 
-            postgres_metadata = load_postgres_metadata()
+            postgres_metadata = load_postgres_metadata(active_organisation_id)
             app_users_df = postgres_metadata.get("app_users", pd.DataFrame())
             if app_users_df.empty:
                 st.info(
@@ -2201,7 +2118,7 @@ with metadata_tab:
     if review_keys:
         st.dataframe(pd.DataFrame({"review_decision_key": review_keys[-25:]}), width="stretch")
 
-    postgres_metadata = load_postgres_metadata()
+    postgres_metadata = load_postgres_metadata(active_organisation_id)
     postgres_health = postgres_metadata["health"]
 
     st.subheader("Surgeon preference metadata catalogue")

@@ -250,6 +250,9 @@ def test_publish_event_gold_outputs_and_draft_status_are_archived():
 
     assert published_key.startswith("gold/operational/published/")
     assert "gold/operational/latest/gold_operational_preference_cards.csv" in storage.objects
+    latest_json = "gold/operational/latest/gold_operational_preference_cards.json"
+    assert json.loads(storage.objects[latest_json]) == _gold_df().to_dict("records")
+    assert storage.objects[published_key.removesuffix(".csv") + ".json"] == storage.objects[latest_json]
     assert event_key.startswith(f"{PUBLISH_EVENT_PREFIX}/")
     assert json.loads(storage.objects[event_key])["publisher_email"] == "admin@example.com"
     assert updated_draft["status"] == PUBLISHED_DRAFT_STATUS

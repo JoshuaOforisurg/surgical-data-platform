@@ -21,11 +21,9 @@ def test_user_registry_methods_are_noops_when_postgres_disabled():
     assert repository.upsert_app_user_seen(
         user_email="editor@example.com",
         display_name="Editor",
-        roles=["authenticated", "editor"],
-        status="active",
         auth_provider="local_env",
     ) is None
-    assert repository.list_app_users() == []
+    assert repository.list_app_users("default") == []
     assert repository.list_access_requests() == []
     assert repository.create_access_request(
         user_email="editor@example.com",
@@ -36,6 +34,7 @@ def test_user_registry_methods_are_noops_when_postgres_disabled():
     ) is None
     assert repository.resolve_access_request(
         access_request_id="00000000-0000-0000-0000-000000000001",
+        organisation_id="default",
         decision="approved",
         actor_email="admin@example.com",
         actor_name="Admin",
