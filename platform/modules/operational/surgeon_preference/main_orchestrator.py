@@ -40,6 +40,10 @@ def main() -> None:
         ),
     )
     parser.add_argument(
+        "--replay-run",
+        help="Replay the landed inputs from a failed run using a new run ID.",
+    )
+    parser.add_argument(
         "--synthetic-count",
         type=int,
         default=settings.synthetic_record_count,
@@ -62,6 +66,12 @@ def main() -> None:
         help="Comma-separated partitioned formats. Structured ingestion supports json,csv.",
     )
     parser.add_argument(
+        "--quantity-anomaly-rate",
+        type=float,
+        default=0.02,
+        help="Per-instrument probability of generating an invalid quantity in synthetic data (0-1).",
+    )
+    parser.add_argument(
         "--check-postgres",
         action="store_true",
         help="Initialise and validate the Postgres metadata catalogue, then exit.",
@@ -73,6 +83,22 @@ def main() -> None:
         print(json.dumps(report, indent=2))
         if not report["valid"]:
             raise SystemExit(1)
+        return
+
+    if args.replay_run:
+        if args.source_object_key or args.source_object_prefix:
+            raise SystemExit("Replay cannot be combined with source-object options.")
+        from orchestration.minio_medallion_pipeline import MinIOMedallionPipeline
+
+        result = MinIOMedallionPipeline(settings).replay_failed_run(args.replay_run)
+        logger.info(
+            "Replay complete | source_run_id=%s | run_id=%s | files=%s | records=%s | gold_key=%s",
+            args.replay_run,
+            result["run_id"],
+            result["files_landed"],
+            result["records_processed"],
+            result["gold_keys"]["operational_latest_csv"],
+        )
         return
 
     source_path = Path(args.source)
@@ -161,6 +187,7 @@ def main() -> None:
             messy=True,
             output_mode=args.synthetic_output_mode,
             file_formats=args.synthetic_file_formats,
+            quantity_anomaly_rate=args.quantity_anomaly_rate,
         )
         if args.synthetic_output_mode == "partitioned":
             source_path = source_path.parent / "partitioned"

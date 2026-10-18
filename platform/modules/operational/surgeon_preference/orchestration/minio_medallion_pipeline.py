@@ -6,6 +6,7 @@ import io
 import json
 import logging
 import mimetypes
+import csv as csv_module
 from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -46,47 +47,92 @@ class MinIOMedallionPipeline:
         self.analytics_gold = ClinicalGoldAnalytics()
         self.preference_card_repository = PreferenceCardRepository(settings.postgres)
 
-    def run(self, source_path: Path) -> Dict[str, Any]:
+    def run(
+        self, source_path: Path, replay_of_run_id: str | None = None
+    ) -> Dict[str, Any]:
         run_id = new_run_id()
         source_path = Path(source_path)
         LOGGER.info("Starting surgeon preference pipeline run_id=%s source=%s", run_id, source_path)
 
-        self.object_store.wait_until_ready()
         self.catalog.initialise()
-        self.catalog.bootstrap_iceberg_catalog(
-            warehouse_uri=self.object_store.uri("iceberg-warehouse")
-        )
         self.catalog.start_run(
             run_id,
             str(source_path),
             pipeline_version=PIPELINE_VERSION,
             data_product_version=DATA_PRODUCT_VERSION,
+            replay_of_run_id=replay_of_run_id,
         )
 
-        landed_files = self._land_source_files(source_path, run_id)
+        landed_files: List[Dict[str, Any]] = []
         all_raw_records: list[dict[str, Any]] = []
+        quarantined_files: list[Dict[str, Any]] = []
+        active_stage = "landing"
 
         try:
+            self.catalog.record_stage(run_id, active_stage, "running")
+            self.object_store.wait_until_ready()
+            self.catalog.bootstrap_iceberg_catalog(
+                warehouse_uri=self.object_store.uri("iceberg-warehouse")
+            )
+            landed_files = self._land_source_files(source_path, run_id)
+            self.catalog.record_stage(
+                run_id, active_stage, "completed", records_received=len(landed_files), completed=True
+            )
+
+            active_stage = "bronze"
+            self.catalog.record_stage(run_id, active_stage, "running")
             with TemporaryDirectory() as tmpdir:
                 tmpdir_path = Path(tmpdir)
                 for landed in landed_files:
                     file_id = landed["file_id"]
                     local_copy = tmpdir_path / landed["original_filename"]
                     self.object_store.download_file(landed["object_key"], local_copy)
-                    records = self._extract_records(local_copy)
+                    try:
+                        records = self._extract_records(local_copy)
+                    except (json.JSONDecodeError, UnicodeDecodeError, csv_module.Error, ValueError) as exc:
+                        quarantine = self._quarantine_source_file(run_id, landed, exc)
+                        quarantined_files.append(quarantine)
+                        continue
                     self.catalog.write_records(file_id, run_id, records)
                     self.catalog.update_file_status(file_id, "bronze_registered")
+                    self.catalog.update_run_file(run_id, file_id, "bronze_registered", len(records))
                     all_raw_records.extend(records)
 
             LOGGER.info("Bronze extraction complete records=%s", len(all_raw_records))
+            self.catalog.record_stage(
+                run_id, active_stage, "completed",
+                records_received=len(all_raw_records),
+                records_processed=len(all_raw_records),
+                records_rejected=len(quarantined_files), completed=True,
+            )
 
+            active_stage = "silver_a"
+            self.catalog.record_stage(run_id, active_stage, "running", records_received=len(all_raw_records))
             silver_a_records = self.silver_a.transform_records(
                 all_raw_records,
                 run_id=run_id,
             )
+            self.catalog.record_stage(
+                run_id, active_stage, "completed", records_received=len(all_raw_records),
+                records_processed=len(silver_a_records), completed=True,
+            )
+
+            active_stage = "silver_b"
+            self.catalog.record_stage(
+                run_id, active_stage, "running", records_received=len(silver_a_records)
+            )
             silver_b_records = self.silver_b.process(
                 silver_a_records,
                 run_id=run_id,
+            )
+            silver_stats = self.silver_b.get_stats()
+            self.catalog.record_stage(
+                run_id, active_stage, "completed",
+                records_received=len(silver_a_records),
+                records_processed=len(silver_b_records),
+                records_rejected=int(silver_stats.get("quarantined", 0))
+                + int(silver_stats.get("failed", 0)),
+                completed=True,
             )
             silver_keys = self._publish_silver(run_id)
             quality_summary = evaluate_silver_quality(
@@ -95,17 +141,35 @@ class MinIOMedallionPipeline:
             )
             contract_summary = validate_silver_to_gold_records(silver_b_records)
 
+            active_stage = "gold"
+            self.catalog.record_stage(run_id, active_stage, "running", records_received=len(silver_b_records))
             operational = self.operational_gold.build_and_write(silver_b_records)
             analytics_report = self.analytics_gold.full_report(silver_b_records)
 
             gold_keys = self._publish_gold(run_id, operational["rows"], analytics_report)
+            self.catalog.record_stage(
+                run_id, active_stage, "completed",
+                records_received=len(silver_b_records),
+                records_processed=len(operational["rows"]), completed=True,
+            )
+
+            active_stage = "operational_sync"
+            self.catalog.record_stage(run_id, active_stage, "running", records_received=len(operational["rows"]))
             operational_sync_summary = self._sync_operational_current_cards(
                 operational_rows=operational["rows"],
                 gold_keys=gold_keys,
             )
+            self.catalog.record_stage(
+                run_id, active_stage, "completed",
+                records_received=len(operational["rows"]),
+                records_processed=int(operational_sync_summary.get("imported", 0)),
+                records_rejected=int(operational_sync_summary.get("protected", 0)),
+                completed=True,
+            )
             self._publish_run_manifest(
                 run_id=run_id,
                 landed_files=landed_files,
+                quarantined_files=quarantined_files,
                 records_processed=len(all_raw_records),
                 silver_keys=silver_keys,
                 gold_keys=gold_keys,
@@ -121,6 +185,10 @@ class MinIOMedallionPipeline:
                 records_processed=len(all_raw_records),
                 gold_operational_key=gold_keys["operational_latest_csv"],
                 gold_analytics_key=gold_keys["analytics_latest_json"],
+                records_received=len(all_raw_records),
+                records_rejected=int(silver_stats.get("failed", 0)) + len(quarantined_files),
+                records_quarantined=int(silver_stats.get("quarantined", 0)),
+                records_published=len(operational["rows"]),
             )
 
             LOGGER.info(
@@ -139,6 +207,7 @@ class MinIOMedallionPipeline:
                 "analytics_schema_version": ANALYTICS_SCHEMA_VERSION,
                 "analytics_data_product_version": ANALYTICS_DATA_PRODUCT_VERSION,
                 "files_landed": len(landed_files),
+                "files_quarantined": len(quarantined_files),
                 "records_processed": len(all_raw_records),
                 "quality_summary": quality_summary,
                 "contract_summary": contract_summary,
@@ -149,16 +218,41 @@ class MinIOMedallionPipeline:
 
         except Exception as exc:
             LOGGER.exception("Pipeline failed run_id=%s", run_id)
-            self.catalog.complete_run(
-                run_id=run_id,
-                status="failed",
-                files_landed=len(landed_files),
-                records_processed=len(all_raw_records),
-                gold_operational_key=None,
-                gold_analytics_key=None,
-                error_message=str(exc),
-            )
+            try:
+                self.catalog.record_stage(
+                    run_id, active_stage, "failed", error_message=str(exc), completed=True
+                )
+                self.catalog.complete_run(
+                    run_id=run_id,
+                    status="failed",
+                    files_landed=len(landed_files),
+                    records_processed=len(all_raw_records),
+                    gold_operational_key=None,
+                    gold_analytics_key=None,
+                    error_message=str(exc),
+                    records_received=len(all_raw_records),
+                )
+            except Exception:
+                LOGGER.exception("Could not persist failure metadata run_id=%s", run_id)
             raise
+
+    def replay_failed_run(self, failed_run_id: str) -> Dict[str, Any]:
+        source_files = self.catalog.get_run_files(failed_run_id)
+        if not source_files:
+            raise ValueError(f"No landed source files are available for run {failed_run_id}.")
+
+        with TemporaryDirectory(prefix=f"replay-{failed_run_id}-") as tmpdir:
+            replay_dir = Path(tmpdir)
+            for index, source in enumerate(source_files):
+                filename = Path(source["original_filename"]).name
+                local_path = replay_dir / str(index) / filename
+                self.object_store.download_file(source["object_key"], local_path)
+                actual_checksum = sha256_file(local_path)
+                if actual_checksum != source["checksum_sha256"]:
+                    raise ValueError(
+                        f"Checksum mismatch while replaying source object {source['object_key']}."
+                    )
+            return self.run(replay_dir, replay_of_run_id=failed_run_id)
 
     def _land_source_files(self, source_path: Path, run_id: str) -> List[Dict[str, Any]]:
         files = self._source_files(source_path)
@@ -168,8 +262,8 @@ class MinIOMedallionPipeline:
             checksum = sha256_file(file_path)
             content_type = mimetypes.guess_type(file_path.name)[0] or "application/octet-stream"
             object_key = (
-                f"{self.settings.minio.landing_prefix}/{run_id}/"
-                f"{datetime.now(UTC).strftime('%Y%m%d_%H%M%S_%f')}_{file_path.name}"
+                f"{self.settings.minio.landing_prefix.strip('/')}/content/"
+                f"{checksum}/{file_path.name}"
             )
             object_uri = self.object_store.upload_file(
                 file_path,
@@ -189,6 +283,7 @@ class MinIOMedallionPipeline:
                 "checksum_sha256": checksum,
             }
             file_id = self.catalog.register_file(metadata)
+            self.catalog.register_run_file(run_id, file_id)
             self.catalog.register_object(
                 {
                     **metadata,
@@ -209,6 +304,50 @@ class MinIOMedallionPipeline:
         if source_path.is_dir():
             return sorted(path for path in source_path.rglob("*") if path.is_file())
         raise FileNotFoundError(f"Source path does not exist: {source_path}")
+
+    def _quarantine_source_file(
+        self, run_id: str, landed: Dict[str, Any], error: Exception
+    ) -> Dict[str, Any]:
+        details = {
+            "run_id": run_id,
+            "source_file_id": str(landed["file_id"]),
+            "source_object_key": landed["object_key"],
+            "source_filename": landed["original_filename"],
+            "source_checksum_sha256": landed["checksum_sha256"],
+            "quarantined_at": datetime.now(UTC).isoformat(),
+            "error_type": type(error).__name__,
+            "error_message": str(error),
+        }
+        body = json.dumps(details, indent=2)
+        object_key = (
+            f"{self.settings.minio.bronze_prefix}/quarantine/runs/"
+            f"{run_id}/{landed['file_id']}.json"
+        )
+        self.object_store.put_text(object_key, body, "application/json")
+        self.catalog.register_object(
+            {
+                "run_id": run_id,
+                "bucket": self.object_store.bucket,
+                "object_key": object_key,
+                "object_uri": self.object_store.uri(object_key),
+                "layer": "bronze",
+                "artifact_type": "quarantined_source_file",
+                "content_type": "application/json",
+                "size_bytes": len(body.encode("utf-8")),
+                "checksum_sha256": hashlib.sha256(body.encode("utf-8")).hexdigest(),
+                "source_filename": landed["original_filename"],
+            }
+        )
+        message = f"{type(error).__name__}: {error}"
+        self.catalog.update_file_status(landed["file_id"], "quarantined", message)
+        self.catalog.update_run_file(run_id, landed["file_id"], "quarantined")
+        LOGGER.warning(
+            "Quarantined malformed source file run_id=%s file_id=%s error=%s",
+            run_id,
+            landed["file_id"],
+            message,
+        )
+        return {**details, "quarantine_object_key": object_key}
 
     def _extract_records(self, local_path: Path) -> List[Dict[str, Any]]:
         if local_path.suffix.lower() == ".json":
@@ -336,6 +475,8 @@ class MinIOMedallionPipeline:
         result = {
             "enabled": summary.enabled,
             "imported": summary.imported,
+            "unchanged": getattr(summary, "unchanged", 0),
+            "protected": getattr(summary, "protected", 0),
             "organisation_id": summary.organisation_id,
             "source_gold_key": summary.source_gold_key,
             "message": summary.message,
@@ -402,6 +543,7 @@ class MinIOMedallionPipeline:
         quality_summary: Dict[str, Any],
         contract_summary: Dict[str, Any],
         operational_sync_summary: Dict[str, Any],
+        quarantined_files: List[Dict[str, Any]] | None = None,
     ) -> None:
         manifest = {
             "run_id": run_id,
@@ -420,6 +562,7 @@ class MinIOMedallionPipeline:
                 }
                 for item in landed_files
             ],
+            "quarantined_files": quarantined_files or [],
             "records_processed": records_processed,
             "quality_summary": quality_summary,
             "contract_summary": contract_summary,

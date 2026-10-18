@@ -39,11 +39,14 @@ def random_casing(text: str) -> str:
     return random.choice(styles)
 
 
-def apply_messiness(card_record):
+def apply_messiness(card_record, quantity_anomaly_rate: float = 0.02):
     """
     Accepts a clean Pydantic card record, makes a deep copy,
     and selectively corrupts fields to simulate real-world NHS data.
     """
+    if not 0 <= quantity_anomaly_rate <= 1:
+        raise ValueError("quantity_anomaly_rate must be between 0 and 1.")
+
     messy = deepcopy(card_record)
 
     # ---------------------------------------------------------
@@ -83,7 +86,7 @@ def apply_messiness(card_record):
     # 5. Corrupt instrument quantities
     # ---------------------------------------------------------
     for inst in messy.instruments:
-        if random.random() < 0.1:
+        if random.random() < quantity_anomaly_rate:
             inst.quantity = random.choice([None, -1, 999])
 
     # ---------------------------------------------------------

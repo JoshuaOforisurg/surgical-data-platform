@@ -1,11 +1,13 @@
 import json
 
 import pandas as pd
+import pytest
 
 from domain.clinical_reference_data import CLINICAL_PROCEDURE_PROFILES
 from domain.clinical_reference_service import ClinicalReferenceService
 from generate_synthetic_data.main_synthetic_generator import generate_single_card
 from generate_synthetic_data.main_synthetic_generator import generate_batch
+from generate_synthetic_data.messiness_generator import apply_messiness
 from generate_synthetic_data import mock_data
 from generate_synthetic_data import catalogue
 from generate_synthetic_data import shared_catalogue
@@ -34,6 +36,7 @@ def test_each_procedure_uses_configured_system():
 
         assert enriched["clinical_resolution"]["procedure_id"] == procedure_id
         assert enriched["clinical_resolution"]["system_id"] == profile["instrument_systems"][0]
+        assert "OBSERVED_SYSTEM_PROCEDURE_MISMATCH" not in enriched["clinical_validation"]["flags"]
 
 
 def test_observed_wrong_system_requires_review():
@@ -53,6 +56,80 @@ def test_observed_wrong_system_requires_review():
     assert enriched["clinical_resolution"]["system_id"] == "SYS_HIP_R3_001"
     assert "OBSERVED_SYSTEM_PROCEDURE_MISMATCH" in enriched["clinical_validation"]["flags"]
     assert enriched["clinical_validation"]["readiness_status"] == "Review required"
+    assert enriched["quarantine_status"] == {
+        "is_corrupted": True,
+        "quarantine_reason": "CLINICAL_SYSTEM_PROCEDURE_MISMATCH",
+    }
+
+
+def test_unresolved_explicit_instrument_system_is_quarantined_for_review():
+    engine = ClinicalEnrichmentEngine()
+    hip = CLINICAL_PROCEDURE_PROFILES["ORTH_JOINT_HIP_001"]
+    enriched = engine.enrich({
+        "procedure_name": hip["name"],
+        "instrument_system": "Unknown Theatre System 42",
+        "instruments": _items(hip["expected_instruments"]),
+        "implants": _items(hip["expected_implants"]),
+        "equipment": _items(hip["expected_equipment"]),
+    })
+
+    assert "OBSERVED_SYSTEM_NOT_RESOLVED" in enriched["clinical_validation"]["flags"]
+    assert enriched["quarantine_status"]["quarantine_reason"] == "INSTRUMENT_SYSTEM_UNRESOLVED"
+
+
+@pytest.mark.parametrize("quantity", [None, "", -1, 0, 999, "invalid", 1.5, True])
+def test_missing_or_invalid_item_quantity_is_quarantined(quantity):
+    engine = ClinicalEnrichmentEngine()
+    procedure = CLINICAL_PROCEDURE_PROFILES["ORTH_JOINT_HIP_001"]
+    instruments = [{"name": name, "quantity": 1} for name in procedure["expected_instruments"]]
+    instruments[0]["quantity"] = quantity
+    enriched = engine.enrich({
+        "procedure_name": procedure["name"],
+        "instruments": json.dumps(instruments),
+        "implants": _items(procedure["expected_implants"]),
+        "equipment": _items(procedure["expected_equipment"]),
+    })
+
+    assert enriched["quarantine_status"]["is_corrupted"] is True
+    assert enriched["quarantine_status"]["quarantine_reason"] == "CRITICAL_QUANTITY_ANOMALY"
+
+
+def test_positive_integer_quantity_remains_valid():
+    engine = ClinicalEnrichmentEngine()
+    procedure = CLINICAL_PROCEDURE_PROFILES["ORTH_JOINT_HIP_001"]
+    enriched = engine.enrich({
+        "procedure_name": procedure["name"],
+        "instruments": _items(procedure["expected_instruments"]),
+        "implants": _items(procedure["expected_implants"]),
+        "equipment": _items(procedure["expected_equipment"]),
+    })
+
+    assert enriched["quarantine_status"]["is_corrupted"] is False
+    assert "QUANTITY_ANOMALY" not in " ".join(enriched["clinical_validation"]["flags"])
+
+
+def test_implicit_singleton_implants_and_equipment_do_not_need_quantities():
+    engine = ClinicalEnrichmentEngine()
+    procedure = CLINICAL_PROCEDURE_PROFILES["ORTH_JOINT_HIP_001"]
+    enriched = engine.enrich({
+        "procedure_name": procedure["name"],
+        "instruments": _items(procedure["expected_instruments"]),
+        "implants": json.dumps([{"name": name} for name in procedure["expected_implants"]]),
+        "equipment": json.dumps([{"name": name} for name in procedure["expected_equipment"]]),
+    })
+
+    assert enriched["quarantine_status"]["is_corrupted"] is False
+
+
+def test_synthetic_quantity_anomaly_rate_is_configurable():
+    card = generate_single_card(messy=False, export=False)
+    clean = apply_messiness(card, quantity_anomaly_rate=0)
+    assert [item.quantity for item in clean.instruments] == [item.quantity for item in card.instruments]
+
+    deliberately_messy = apply_messiness(card, quantity_anomaly_rate=1)
+    assert all(item.quantity in {None, -1, 999} for item in deliberately_messy.instruments)
+    with pytest.raises(ValueError, match="between 0 and 1"):
+        apply_messiness(card, quantity_anomaly_rate=1.1)
 
 
 def test_messy_special_instructions_are_canonicalised():

@@ -74,6 +74,7 @@ def generate_single_card(
     export: bool = True,
     stem: str = "master_preferences",
     formats: str | Iterable[str] | None = MASTER_FORMATS,
+    quantity_anomaly_rate: float = 0.02,
 ):
     """
     Generates a single surgeon preference card aligned to the shared clinical catalogue.
@@ -223,7 +224,10 @@ def generate_single_card(
     # ---------------------------------------------------------
     # 9. Messiness
     # ---------------------------------------------------------
-    record_to_export = apply_messiness(card_record) if messy else card_record
+    record_to_export = (
+        apply_messiness(card_record, quantity_anomaly_rate=quantity_anomaly_rate)
+        if messy else card_record
+    )
 
     if export:
         _export_record(
@@ -246,6 +250,7 @@ def generate_batch(
     messy: bool = True,
     output_mode: str = "master",
     file_formats: str | Iterable[str] | None = STRUCTURED_FORMATS,
+    quantity_anomaly_rate: float = 0.02,
 ):
     """
     Generates a batch of surgeon preference cards.
@@ -278,7 +283,12 @@ def generate_batch(
 
     cards = []
     for idx in range(1, n + 1):
-        card = generate_single_card(output_dir=output_dir, messy=messy, export=False)
+        card = generate_single_card(
+            output_dir=output_dir,
+            messy=messy,
+            export=False,
+            quantity_anomaly_rate=quantity_anomaly_rate,
+        )
         cards.append(card)
         if mode in {"master", "both"}:
             _export_record(card, output_dir=output_dir, stem="master_preferences", formats=MASTER_FORMATS)
@@ -300,6 +310,12 @@ if __name__ == "__main__":
     parser.add_argument("--output-dir", default="generate_synthetic_data/output")
     parser.add_argument("--clean", action="store_true", help="Disable messy source-data perturbations.")
     parser.add_argument(
+        "--quantity-anomaly-rate",
+        type=float,
+        default=0.02,
+        help="Per-instrument probability of generating a deliberately invalid quantity (0-1).",
+    )
+    parser.add_argument(
         "--output-mode",
         choices=["master", "partitioned", "both"],
         default="master",
@@ -320,5 +336,6 @@ if __name__ == "__main__":
         messy=not args.clean,
         output_mode=args.output_mode,
         file_formats=args.file_formats,
+        quantity_anomaly_rate=args.quantity_anomaly_rate,
     )
     print("Done.")

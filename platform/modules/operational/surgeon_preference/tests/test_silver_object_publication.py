@@ -121,6 +121,8 @@ def test_operational_current_card_sync_imports_published_gold_rows():
     assert summary == {
         "enabled": True,
         "imported": 1,
+        "unchanged": 0,
+        "protected": 0,
         "organisation_id": "default",
         "source_gold_key": "gold/operational/latest/gold_operational_preference_cards.csv",
         "message": "Imported 1 current preference cards.",

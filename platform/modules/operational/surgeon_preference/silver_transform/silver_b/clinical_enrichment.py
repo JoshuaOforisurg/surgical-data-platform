@@ -1,5 +1,6 @@
 from typing import Dict, Any, Optional, List
 import json
+import math
 
 from domain.clinical_reference_data import _normalise
 from domain.clinical_reference_service import ClinicalReferenceService
@@ -46,7 +47,12 @@ class ClinicalEnrichmentEngine:
             for provided in provided_items
         )
 
-    def extract_and_audit_items(self, raw_json_str: Any, records_flags: List[str]) -> List[str]:
+    def extract_and_audit_items(
+        self,
+        raw_json_str: Any,
+        records_flags: List[str],
+        quantity_required: bool = False,
+    ) -> List[str]:
         """Unpacks JSON arrays, extracts names, and flags quantity corruptions."""
         if not raw_json_str:
             return []
@@ -64,8 +70,7 @@ class ClinicalEnrichmentEngine:
                     qty = item.get("quantity")
                     name = item.get("name") or item.get("item_name")
 
-                    # Flag the raw data anomaly instead of discarding the item
-                    if qty in [-1, 999]:
+                    if self._has_invalid_quantity(qty, required=quantity_required):
                         records_flags.append(f"QUANTITY_ANOMALY_{str(name).upper().replace(' ', '_')}")
 
                     if name:
@@ -73,6 +78,18 @@ class ClinicalEnrichmentEngine:
             return clean_names
         except Exception:
             return []
+
+    @staticmethod
+    def _has_invalid_quantity(value: Any, required: bool = False) -> bool:
+        if value is None or str(value).strip() == "":
+            return required
+        if isinstance(value, bool):
+            return True
+        try:
+            quantity = float(value)
+        except (TypeError, ValueError, OverflowError):
+            return True
+        return not math.isfinite(quantity) or not quantity.is_integer() or quantity <= 0 or quantity >= 999
 
     def validate_compatibility(
             self,
@@ -191,22 +208,28 @@ class ClinicalEnrichmentEngine:
         proc_profile = self.get_procedure_profile(procedure_id) if procedure_id else None
 
         # Extract names and capture anomalies in pipeline_flags
-        clean_instruments = self.extract_and_audit_items(record.get("instruments"), pipeline_flags)
+        clean_instruments = self.extract_and_audit_items(
+            record.get("instruments"), pipeline_flags, quantity_required=True
+        )
         clean_implants = self.extract_and_audit_items(record.get("implants"), pipeline_flags)
         clean_equipment = self.extract_and_audit_items(record.get("equipment"), pipeline_flags)
 
-        system_lookup_text = " ".join(
-            str(value or "")
-            for value in [
-                record.get("instrument_system"),
-                record.get("implant_system"),
-                " ".join(clean_instruments),
-                " ".join(clean_implants),
-                " ".join(clean_equipment),
-            ]
-        )
-        observed_system_id = self.resolve_instrument_system(system_lookup_text)
         configured_systems = proc_profile.get("instrument_systems") if proc_profile else []
+        explicit_system = record.get("instrument_system")
+        observed_system_id = self.resolve_instrument_system(str(explicit_system)) if explicit_system else None
+        if explicit_system and not observed_system_id:
+            pipeline_flags.append("OBSERVED_SYSTEM_NOT_RESOLVED")
+        if not configured_systems and not observed_system_id:
+            system_lookup_text = " ".join(
+                str(value or "")
+                for value in [
+                    record.get("implant_system"),
+                    " ".join(clean_instruments),
+                    " ".join(clean_implants),
+                    " ".join(clean_equipment),
+                ]
+            )
+            observed_system_id = self.resolve_instrument_system(system_lookup_text)
         system_id = configured_systems[0] if configured_systems else observed_system_id
 
         if (
@@ -240,16 +263,29 @@ class ClinicalEnrichmentEngine:
             procedure_id,
         )
 
-        # Inject quarantine trigger metadata
-        is_quarantine_target = any("QUANTITY_ANOMALY" in f for f in validation["flags"])
+        quantity_anomaly = any("QUANTITY_ANOMALY" in flag for flag in validation["flags"])
+        system_procedure_mismatch = any(
+            flag in {"OBSERVED_SYSTEM_PROCEDURE_MISMATCH", "SYSTEM_PROCEDURE_MISMATCH"}
+            for flag in validation["flags"]
+        )
+        unresolved_observed_system = "OBSERVED_SYSTEM_NOT_RESOLVED" in validation["flags"]
+        quarantine_reason = None
+        if quantity_anomaly and (system_procedure_mismatch or unresolved_observed_system):
+            quarantine_reason = "MULTIPLE_CRITICAL_VALIDATION_FAILURES"
+        elif quantity_anomaly:
+            quarantine_reason = "CRITICAL_QUANTITY_ANOMALY"
+        elif system_procedure_mismatch:
+            quarantine_reason = "CLINICAL_SYSTEM_PROCEDURE_MISMATCH"
+        elif unresolved_observed_system:
+            quarantine_reason = "INSTRUMENT_SYSTEM_UNRESOLVED"
 
         return {
             **record,
             "special_instructions_notes": clean_special_instruction,
             "raw_special_instructions_notes": raw_special_instruction,
             "quarantine_status": {
-                "is_corrupted": is_quarantine_target,
-                "quarantine_reason": "CRITICAL_QUANTITY_ANOMALY" if is_quarantine_target else None
+                "is_corrupted": quarantine_reason is not None,
+                "quarantine_reason": quarantine_reason,
             },
             "clinical_resolution": {
                 "procedure_id": procedure_id,
