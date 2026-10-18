@@ -10,13 +10,14 @@ The public demonstration is available at
 synthetic data and must not be used to collect patient-identifiable or
 confidential hospital information.
 
-For commands, environment configuration, storage paths, and deployment
-instructions, use [`README.md`](README.md). This document provides the concise
-product and architecture overview.
+For the execution checklist, local database guide, and workflow design notes,
+see the documents linked from the [platform README](../../../../README.md).
 
 ## Current Status
 
-Version 1 is complete as a standalone operational data product. It supports:
+The local Surgeon Preference product has a working pipeline and controlled
+preference-card workflow. It is still under hardening and is not ready for
+real hospital data or external multi-tenant use. Current local capabilities:
 
 - clinically aligned synthetic source-data generation at 1000-file scale;
 - local files, directories, and object-storage keys or prefixes as inputs;
@@ -28,7 +29,7 @@ Version 1 is complete as a standalone operational data product. It supports:
 - a Dockerized Streamlit application and dedicated batch-job image; and
 - Azure Data Factory-triggered Azure Container App Job execution.
 
-Version 2 is in progress. Its current foundation includes:
+The tenant-aware Version 2 foundation includes:
 
 - Azure-managed identity integration through forwarded authentication headers;
 - application users, organisations, memberships, and access requests;
@@ -36,19 +37,22 @@ Version 2 is in progress. Its current foundation includes:
 - organisation identifiers on workflow and audit payloads; and
 - separate editor, reviewer, administrator, and authenticated-user roles.
 
-The current deployment still uses one default organisation. Full tenant
-isolation has not yet been completed or validated for clinical use.
+Tenant isolation has local integration coverage for two organisations,
+including card reads/history, scoped drafts, and role-gated writes. The full
+cross-tenant matrix, PostgreSQL row-level security, account-linking/email
+change, and Azure validation remain open. Do not use this as a clinical
+production service.
 
 ## Implemented Architecture
 
 ```text
-Synthetic, uploaded, or object-storage source files
+Synthetic or authorised source files
         |
         v
-Object storage landing/{run_id}/
+Object storage landing/content/{sha256}/{filename}
         |
         v
-PostgreSQL Bronze ledger and metadata catalogue
+PostgreSQL Bronze ledger, run-to-file links, and metadata catalogue
         |
         v
 Silver A: structural cleanup and schema flattening
@@ -77,8 +81,9 @@ The synthetic generator creates clinically aligned orthopaedic preference
 cards and can introduce controlled messiness for testing. The pipeline can
 process aggregate files or one structured JSON/CSV file per card.
 
-Each source file is checksummed, copied to a run-specific landing prefix, and
-registered in PostgreSQL before its records are transformed.
+Each source file is checksummed and stored at a stable content-addressed
+landing key. PostgreSQL records the file once and links it to each pipeline
+run, preserving provenance while allowing safe repeated ingestion.
 
 ### Silver A: structural normalization
 
@@ -182,7 +187,7 @@ The local Docker Compose environment contains:
 - the batch pipeline; and
 - the Streamlit web application.
 
-The implemented Azure shape is:
+The intended Azure runtime mapping is:
 
 | Local responsibility | Azure implementation |
 | --- | --- |
@@ -192,6 +197,12 @@ The implemented Azure shape is:
 | Streamlit container | Azure Container App |
 | Manual/scheduled execution | Azure Data Factory trigger |
 | Local image | Azure Container Registry image |
+
+Azure resources exist, but the subscription is currently disabled. The latest
+application and pipeline changes have not been deployed or verified there.
+The local Compose demo enables synthetic read-only access; cloud deployments
+default that public demo off. Azure activation and a fresh end-to-end run are
+required before making cloud-readiness claims.
 
 ## FHIR and EPR Integration
 

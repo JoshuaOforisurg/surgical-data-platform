@@ -135,3 +135,71 @@ select
 from app_workflow.audit_events
 order by created_at desc;
 ```
+
+## Draft And Publish State
+
+The workflow tables hold the latest draft state and each publish or rollback
+event. Each event links to the version that became current.
+
+```sql
+select
+    draft_id,
+    organisation_id,
+    draft_type,
+    status,
+    submitted_by_email,
+    reviewed_by_email,
+    created_at,
+    published_at
+from app_workflow.preference_card_drafts
+order by created_at desc;
+
+select
+    publish_id,
+    organisation_id,
+    card_id,
+    version_id,
+    draft_id,
+    published_gold_key,
+    published_at
+from app_workflow.preference_card_publish_events
+order by published_at desc;
+```
+
+The controlled local verification run creates synthetic draft/review/publish/
+rollback history in this database. It leaves the test card on its original
+content as a new rollback version; earlier test versions remain in history.
+
+## Draft And Publish State
+
+The workflow tables hold the latest draft state and each publish or rollback
+event. Each event links to the version that became current.
+
+```sql
+select
+    draft_id,
+    organisation_id,
+    draft_type,
+    status,
+    submitted_by_email,
+    reviewed_by_email,
+    created_at,
+    published_at
+from app_workflow.preference_card_drafts
+order by created_at desc;
+
+select
+    publish_id,
+    organisation_id,
+    card_id,
+    version_id,
+    draft_id,
+    published_gold_key,
+    published_at
+from app_workflow.preference_card_publish_events
+order by published_at desc;
+```
+
+The controlled local verification run creates synthetic draft/review/publish/
+rollback history in this database. It leaves the test card on its original
+content as a new rollback version; earlier test versions remain in history.

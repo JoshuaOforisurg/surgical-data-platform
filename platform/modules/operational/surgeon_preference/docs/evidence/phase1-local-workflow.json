@@ -1,0 +1,26 @@
+{
+  "checked_at": "2026-10-18T19:35:08.217240+00:00",
+  "passed": true,
+  "mode": "Streamlit AppTest with real local Postgres and MinIO; synthetic admin identity",
+  "run_id": "run_20261017_191855_286320_62392d7c",
+  "draft_id": "c63d5bed-e6fe-42ad-a353-b09f1705f55a",
+  "draft_key": "gold/operational/drafts/20261018_193456_c63d5bed-e6fe-42ad-a353-b09f1705f55a.json",
+  "published_gold_key": "gold/operational/published/20261018_193500_2aab120f-4275-46ab-a5e5-53790cc68830/gold_operational_preference_cards.csv",
+  "rollback_gold_key": "gold/operational/published/20261018_193506_3a73b373-2e86-4841-9561-0e076e3c12df/gold_operational_preference_cards.csv",
+  "card_id": "31e87567-cace-43b5-9768-3303ab9b267d",
+  "versions": {
+    "original": 11,
+    "published": 12,
+    "rollback": 13
+  },
+  "checks": {
+    "postgres_read_path": true,
+    "draft_and_review_leave_current_card_unchanged": true,
+    "published_edit_visible_in_postgres": true,
+    "rollback_restores_original_content": true,
+    "history_retained_with_one_current_version": true,
+    "draft_review_publish_audit_rows_present": true,
+    "rollback_publication_linked_to_exact_version": true,
+    "postgres_and_gold_snapshots_match_after_rollback": true
+  }
+}

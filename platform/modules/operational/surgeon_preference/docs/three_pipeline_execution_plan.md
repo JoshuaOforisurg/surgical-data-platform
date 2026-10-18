@@ -3,7 +3,7 @@
 ## Purpose
 
 This is the build plan for turning the surgical data platform into a credible,
-defensible portfolio product. Scope is deliberately frozen at three operational
+defensible data product. Scope is deliberately frozen at three operational
 pipelines:
 
 1. Surgeon Preference
@@ -59,6 +59,27 @@ Deadline: 14:00
 - Clinical/device substitution language must stay governed and review-based,
   not autonomous.
 
+## Frontend Migration Boundary
+
+Streamlit is the current product interface and a useful way to validate the
+preference-card workflow. Do not rewrite it just to look more production-like.
+Move to a separate web frontend after the preference use cases have stable,
+UI-independent application services and the tenant authorization and recovery
+checks are proven. Complete that migration before onboarding external
+organisations with real operational data; it does not need to wait for Stock
+Inventory, Loan Kit Management, or the complete Case Readiness product.
+
+The target boundary is:
+
+```text
+Web UI / Streamlit adapter -> application services or API -> domain + repositories
+```
+
+Theatre Readiness sits above the three data products and consumes their
+versioned, tenant-scoped operational outputs. It should not depend on Streamlit
+or force the UI migration. Preference remains the first requirement signal;
+inventory and loan-kit signals can be added behind the same product/API boundary.
+
 ## Phase 1: Finish Surgeon Preference V2
 
 Goal: make Surgeon Preference credible as an operational product, not just a
@@ -75,10 +96,46 @@ Tasks:
 - [x] Add card history view from `preference_card_versions`.
 - [x] Add rollback/revert design for published card versions.
 - [x] Implement rollback/revert workflow for published card versions.
-- [x] Confirm organisation and role scoping across cards, drafts, reviews, and
-      publish events.
-- [x] Add tests for tenant isolation.
-- [ ] Verify local end-to-end run: generate -> landing -> Bronze -> Silver ->
+- [x] Replace deployment-configured organisation context with
+      database-validated active membership and membership-scoped roles.
+- [x] Resolve app permissions from organisation membership records; keep
+      routine sign-in limited to updating the global user profile.
+- [x] Scope access-request decisions, admin membership updates, and workflow
+      metadata queries to the configured organisation.
+- [x] Allow a user with multiple active memberships to select a workspace
+      from server-loaded active membership records.
+- [x] Stop treating identity-provider role claims as application roles; use
+      the database registry for authorization and disable protected actions if
+      that registry is unavailable.
+- [x] Block tenant-owned UI data reads when a validated active membership
+      cannot be resolved. Keep only an explicitly enabled synthetic,
+      read-only demo public; refuse unscoped Gold fallback for tenant reads.
+- [x] Capture and persist provider-qualified identity subject IDs; reject
+      conflicting subject-to-account bindings.
+- [x] Re-resolve active membership and database roles before protected draft,
+      review, publish, rollback, and organisation-admin writes.
+- [x] Extract draft submission into a UI-independent application service used
+      by Streamlit, with injectable storage/repository dependencies.
+- [x] Extract review submission into a UI-independent application service;
+      authorize from fresh membership roles and report partial audit failures.
+- [x] Extract approved-card publishing into a UI-independent service that
+      updates operational Postgres first and reports downstream partial states.
+- [x] Extract rollback into a UI-independent service that creates a new
+      operational version and reports export/audit partial states.
+- [x] Extract preference read/search use cases behind the same
+      application-service boundary.
+- [x] Define stable request/response contracts for those use cases before
+      building a separate frontend or public API.
+- [x] Enforce actor membership inside repository transactions for protected
+      workflow, card publish/rollback, access-request, and membership-admin
+      writes; evaluate PostgreSQL row-level security as defense in depth.
+- [ ] Add PostgreSQL row-level security as defense in depth.
+- [ ] Decouple membership identity from mutable email and implement an audited
+      account-linking/email-change migration.
+- [ ] Complete tenant isolation proof across cards, drafts, reviews, publish events,
+      access requests, counts, and failure paths with at least two organisations
+      against a real two-tenant database fixture.
+- [x] Verify local end-to-end run: generate -> landing -> Bronze -> Silver ->
       Gold -> Postgres current cards -> Streamlit.
 - [ ] Verify Azure end-to-end run and capture evidence.
 - [x] Add DBeaver/Postgres inspection guide for local operational-card checks.
@@ -87,34 +144,80 @@ Evidence to capture:
 
 - [ ] Successful local pipeline run.
 - [ ] Successful Azure pipeline run.
-- [ ] Screenshots or query output from `app_workflow.preference_cards` and
+- [x] Capture local query evidence from `app_workflow.preference_cards` and
       `app_workflow.preference_card_versions`.
-- [ ] Streamlit current-card view.
-- [ ] Draft submission.
-- [ ] Review decision.
-- [ ] Publish event.
-- [ ] Postgres current-card and version rows.
+- [x] Exercise Streamlit current-card reads with AppTest.
+- [x] Exercise draft submission and review decision.
+- [x] Exercise publish and rollback; confirm Postgres current-card and version rows.
+
+Local verification was completed on 2026-10-17 against Docker Postgres on
+host port 5433 and a source-built MinIO community server on loopback. The
+pipeline processed 1,000 input files, quarantined 110 records, published 168
+current cards, and matched CSV/JSON Gold with Postgres. Iceberg SQL catalog
+bootstrap reported `available`. Streamlit AppTest exercised a draft, approval,
+publish, and rollback, creating successive published and rollback versions
+while preserving the original card version. Machine-readable evidence is in
+[`docs/evidence/phase1-local-pipeline.json`](evidence/phase1-local-pipeline.json)
+and [`docs/evidence/phase1-local-workflow.json`](evidence/phase1-local-workflow.json).
+AppTest is not a visual browser review. Azure and the Compose MinIO container
+were not verified in this run.
+
+Tenant-scoping note: active memberships determine workspace selection and
+tenant-facing reads. Protected writes validate and lock the actor's active
+membership and required role inside the same Postgres transaction as the
+mutation. The disposable two-tenant Postgres test now proves isolated card
+reads/history, tenant-scoped draft writes, rejection of cross-tenant writes,
+role-gated administration, and role-gated publish/rollback. It does not yet
+cover every access-request, count, and failure path. Do not enable real
+multi-organisation data until those cases, email-change/account-linking
+handling, and Azure validation are complete.
 
 ## Phase 2: Harden Surgeon Preference Pipeline
 
 Goal: answer the interview question: "What happens if Silver crashes halfway
 through, and how do you prove Gold is still consistent?"
 
+Before starting this phase, the clinical-gate follow-up corrected an overly
+broad system matcher that treated shared instrument names as evidence of the
+observed system. The gate now checks an explicitly supplied system against the
+procedure profile, quarantines explicit incompatible or unresolved systems,
+and treats missing/non-positive/non-integer instrument quantities as invalid.
+Synthetic instrument quantity anomalies are configurable and default to 2%
+per item. Focused regression tests cover the affected procedures and rules.
+The earlier 1,000-file evidence report records the pre-fix run; run a fresh
+pipeline after retry/idempotency work before capturing updated end-to-end
+clinical-gate evidence.
+
 Tasks:
 
-- [ ] Define stage-level execution state: landing, Bronze, Silver A, Silver B,
+- [x] Define stage-level execution state: landing, Bronze, Silver A, Silver B,
       Gold, operational sync.
-- [ ] Add stage status and timestamps to pipeline metadata.
-- [ ] Add records received, processed, rejected, quarantined, and published.
-- [ ] Detect duplicate source files using checksum and source identity.
-- [ ] Make reruns safe for the same source file and run request.
-- [ ] Ensure Silver artifacts are run-scoped.
-- [ ] Ensure Gold latest is only updated after all quality and contract checks
+- [x] Add stage status and timestamps to pipeline metadata.
+- [x] Add records received, processed, rejected, quarantined, and published.
+- [x] Detect duplicate source files using checksum and source identity
+      (stable landing object key includes checksum and filename).
+- [x] Make repeated ingestion of a source file idempotent in the Bronze ledger
+      through a stable file key and deterministic record IDs, with a run-to-file
+      link that preserves original file provenance across executions.
+- [x] Reject a duplicate run ID rather than resetting a prior run's state.
+- [x] Ensure Silver artifacts are run-scoped.
+- [x] Ensure Gold latest is only updated after all quality and contract checks
       pass.
-- [ ] Add failed-run records with error messages.
-- [ ] Add quarantine records/files for malformed source data.
-- [ ] Add replay path for quarantined or failed inputs.
-- [ ] Add integration tests for duplicate source and rerun behaviour.
+- [x] Add failed-run records with error messages.
+- [x] Add run-scoped quarantine manifests for malformed source files in MinIO,
+      register each artifact in Postgres, and mark the source/run-file status
+      as quarantined. Malformed files are excluded while valid sibling files
+      continue through Bronze; the run manifest and rejected-file count retain
+      the quarantine outcome.
+- [x] Add replay path for failed inputs using `--replay-run <run_id>`. Replay
+      downloads the original landed objects, verifies checksums, creates a new
+      run linked to the failed run, and relies on stable Bronze identities to
+      avoid duplicate source records.
+- [x] Add integration tests for duplicate source and rerun behaviour against
+      Postgres and MinIO. The disposable local test runs one clean source twice,
+      verifies one Bronze file/record set with links from both runs, confirms
+      completed stage metadata, and checks the operational card is not
+      re-versioned. It creates and removes a unique test database and bucket.
 
 Failure cases to prove:
 
@@ -126,6 +229,12 @@ Failure cases to prove:
 - [ ] Postgres unavailable.
 - [ ] Object storage unavailable.
 - [ ] Gold publish failure.
+
+The disposable local integration test injects a Silver-B failure, verifies the
+failed stage and error are recorded and no Gold latest object is published,
+then replays that run and confirms successful publication without duplicating
+the Bronze source. A subsequent same-source run remains idempotent. This proves
+the Silver-B failure/replay path locally; other failure modes remain open.
 
 ## Phase 3: Add Observability
 
@@ -288,13 +397,13 @@ Goal: prove reruns do not duplicate or corrupt Gold.
 
 Tests:
 
-- [ ] Duplicate source file.
-- [ ] Bronze succeeds, Silver fails.
+- [x] Duplicate source file.
+- [x] Bronze succeeds, Silver fails.
 - [ ] Silver succeeds, Gold fails.
 - [ ] Postgres unavailable.
 - [ ] Object storage unavailable.
 - [ ] One invalid record in a large batch.
-- [ ] Rerun previous job.
+- [x] Rerun previous job.
 - [ ] Replay quarantined input.
 - [ ] Verify Gold latest remains last-known-good after failed run.
 
@@ -418,13 +527,27 @@ Tasks:
 
 ## Current Immediate Next Step
 
-Start with Phase 1:
+Continue closing the Surgeon Preference tenant-authorization gap before
+enabling real users or real preference data. Enforce actor membership at the
+repository transaction boundary, run the disposable two-tenant test, and
+resolve email-change/account-linking behavior. In parallel, move remaining
+workflow use cases out of Streamlit so the current UI and a future API can
+share the same application layer. Keep the synthetic public demo separate from
+tenant data.
+
+In parallel with the pipeline execution plan, continue Phase 2 safe retry and
+idempotency for pipeline imports and user publishes. Local verification exposed
+a recovery gap: Postgres commits the
+current version before Gold snapshots, object events, and draft status are
+written. A crash between those steps can leave the operational card updated
+while workflow artifacts lag. Add persisted stage state and reconciliation
+before retrying a publish or importing the same pipeline output again.
 
 ```text
-Sync Gold operational preference cards into Postgres current-card tables,
-then move the Streamlit current-card read path gradually from Gold CSV toward
-operational Postgres.
+Make tenant authorization membership-based and fail closed for tenant data;
+then make retries safe across Postgres and object storage, preserve version
+history, and provide a reconciliation path for partially completed publishes.
 ```
 
-That is the first durable step toward making Surgeon Preference V2 the
-transactional product source of truth.
+Keep Azure verification scheduled after local retry and recovery behaviour is
+demonstrated; this run did not verify an Azure deployment.

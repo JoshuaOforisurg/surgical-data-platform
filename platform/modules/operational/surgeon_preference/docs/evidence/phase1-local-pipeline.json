@@ -1,0 +1,54 @@
+{
+  "checked_at": "2026-10-18T20:02:54.704689+00:00",
+  "passed": true,
+  "run_id": "run_20261017_191855_286320_62392d7c",
+  "database": "surgeon_preference",
+  "database_port": 5433,
+  "storage_endpoint": "http://127.0.0.1:9000",
+  "bucket": "surgeon-preference",
+  "files_landed": 1000,
+  "records_processed": 1000,
+  "gold_current_cards": 168,
+  "postgres_current_cards": 168,
+  "gold_artifacts": 6,
+  "silver_record_counts": {
+    "silver_a_cleaned": 1000,
+    "silver_b_enriched": 890,
+    "silver_b_quarantine": 110
+  },
+  "version_counts": [
+    {
+      "change_type": "draft_publish",
+      "count": 4
+    },
+    {
+      "change_type": "pipeline_import",
+      "count": 168
+    },
+    {
+      "change_type": "rollback",
+      "count": 4
+    }
+  ],
+  "iceberg_bootstrap_status": [
+    "available"
+  ],
+  "checks": {
+    "latest_run_completed": true,
+    "bronze_counts_match": true,
+    "landing_files_present": true,
+    "quality_gate_passed": true,
+    "contract_passed": true,
+    "operational_sync_enabled": true,
+    "gold_catalogued": true,
+    "referenced_artifacts_readable": true,
+    "one_gold_row_per_card": true,
+    "database_keys_match_gold": true,
+    "versions_and_sections_match": true,
+    "gold_json_matches_csv": true,
+    "current_version_pointers_valid": true,
+    "frontline_sections_populated": true
+  },
+  "mismatched_cards": [],
+  "empty_artifacts": []
+}

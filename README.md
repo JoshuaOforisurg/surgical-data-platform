@@ -17,6 +17,9 @@ Live project site: [www.surgeonpreference.com](https://www.surgeonpreference.com
 | Need | Link |
 | --- | --- |
 | Product execution plan | [`platform/modules/operational/surgeon_preference/docs/three_pipeline_execution_plan.md`](platform/modules/operational/surgeon_preference/docs/three_pipeline_execution_plan.md) |
+| Surgeon Preference overview | [`platform/modules/operational/surgeon_preference/surgeons_preference README.md`](platform/modules/operational/surgeon_preference/surgeons_preference%20README.md) |
+| Tenant access contract | [`platform/modules/operational/surgeon_preference/docs/tenant_access_contract.md`](platform/modules/operational/surgeon_preference/docs/tenant_access_contract.md) |
+| Local Phase 1 evidence | [`pipeline evidence`](platform/modules/operational/surgeon_preference/docs/evidence/phase1-local-pipeline.json) and [`workflow evidence`](platform/modules/operational/surgeon_preference/docs/evidence/phase1-local-workflow.json) |
 | Surgeon Preference Postgres/DBeaver inspection | [`platform/modules/operational/surgeon_preference/docs/local_postgres_inspection.md`](platform/modules/operational/surgeon_preference/docs/local_postgres_inspection.md) |
 | Preference-card rollback design | [`platform/modules/operational/surgeon_preference/docs/preference_card_rollback_design.md`](platform/modules/operational/surgeon_preference/docs/preference_card_rollback_design.md) |
 | Real user access model | [`platform/modules/operational/surgeon_preference/docs/real_user_access_model.md`](platform/modules/operational/surgeon_preference/docs/real_user_access_model.md) |
@@ -62,12 +65,12 @@ This repository is a production-oriented data product. Local Docker, MinIO, Post
 
 | Area | Status |
 | --- | --- |
-| Surgeon Preference | Most advanced module. Local medallion pipeline, MinIO/Postgres integration, clinical reference enrichment, Streamlit frontend, draft/review/publish workflow, Postgres current-card source of truth, version history, rollback, access workflow, and tests are in place. |
+| Surgeon Preference | Most advanced module. Local medallion pipeline, MinIO/Postgres integration, clinical reference enrichment, Streamlit workflow, Postgres current-card source of truth, version history, rollback, tenant-aware access, and UI-independent application services are implemented with local tests. Tenant isolation and recovery coverage are still incomplete. |
 | Stock Inventory | Active module. Local pipeline, synthetic inventory sources, reconciliation foundations, Gold outputs, dashboard foundations, tests, and cloud scaffolding are in place. Azure hardening remains in progress. |
 | Loan Kit Management | Next module. Scoped conceptually, not yet implemented as a pipeline. |
 | Case Readiness | Target combined product. Not yet built; depends on the three pipelines above. |
 | Shared platform | Shared provider-neutral object storage exists for MinIO and Azure Blob. More shared database, contracts, lineage, quality, orchestration, and observability utilities are still planned. |
-| Azure | Surgeon Preference and Stock have Azure-oriented config/deployment notes. Fresh end-to-end evidence is still needed for the latest code paths. |
+| Azure | Existing resources are present, but the subscription is disabled and Container Apps compute is suspended. No latest-code deployment or end-to-end Azure verification has been completed. Reactivate the subscription before provisioning, deploying, or running cloud checks. |
 
 ## What The Platform Should Prove
 
@@ -116,7 +119,7 @@ Current capabilities:
 - Supports draft edits, draft creation, review, controlled publish, version history, rollback, access requests, user roles, and organisation scoping.
 - Exports Gold snapshots after operational publishes so object storage remains the evidence and analytics layer.
 
-For implementation details, use the Surgeon Preference links in [Start Here](#start-here), especially the execution plan, DBeaver inspection guide, rollback design, and access model. The module-level `README.md` has been removed to avoid duplicate and conflicting documentation.
+For implementation details, use the Surgeon Preference links in [Start Here](#start-here), especially the execution plan, module overview, local evidence, DBeaver inspection guide, rollback design, and access model.
 
 ## Stock Inventory
 
@@ -264,7 +267,7 @@ Planned/used Azure services:
 - Azure secrets/environment configuration for credentials
 - Microsoft Entra ID or Container Apps authentication for real user identity
 
-Current caveat: do not claim the newest code is proven in Azure until there is fresh evidence from the deployed image, Azure Blob, Azure Postgres, logs, and dashboard.
+Current blocker: the Azure subscription is disabled. Existing resources can be inspected, but deployments and Container Apps execution are unavailable while it remains disabled. Do not claim the newest code is proven in Azure until the subscription is active and fresh evidence exists from the deployed image, Azure Blob, Azure Postgres, logs, and dashboard.
 
 ## Evidence Still Needed
 
@@ -293,7 +296,7 @@ What happens on rerun, and how do we prove Gold is not duplicated or corrupted?
 Immediate priorities:
 
 1. Verify Surgeon Preference locally in Docker, MinIO, Postgres, DBeaver, and Streamlit.
-2. Deploy the latest Surgeon Preference image to Azure and capture fresh evidence.
+2. Reactivate the Azure subscription, inspect the existing resources, deploy the latest Surgeon Preference image, and capture fresh evidence.
 3. Continue hardening Stock Inventory with reconciliation, temporal modelling, and Azure verification.
 4. Define cross-pipeline contracts between Surgeon Preference and Stock Inventory.
 5. Add pipeline-run tracking, lineage, idempotency, failure handling, quarantine/dead-letter paths, and replay semantics across modules.
