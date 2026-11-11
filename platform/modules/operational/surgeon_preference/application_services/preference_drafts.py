@@ -9,6 +9,7 @@ from bronze_Ingestion.catalog import BronzeCatalogRepository
 from config.settings import PostgresSettings
 from streamlit_services.access_control import ADMIN_ROLE, EDITOR_ROLE, REVIEWER_ROLE, AppUser
 from streamlit_services.user_registry_service import require_active_membership_role
+from streamlit_services.tenant_storage import tenant_object_prefix
 
 
 DRAFT_PREFIX = "gold/operational/drafts"
@@ -48,6 +49,8 @@ def submit_preference_draft(
         **payload,
         "submitted_by": submitter.display_name,
         "submitter_email": submitter.email,
+        "submitter_identity_provider": submitter.identity_provider,
+        "submitter_identity_subject": submitter.identity_subject,
         "submitter_roles": list(submitter.roles),
         "submitter_status": submitter.status,
         "organisation_id": submitter.organisation_id,
@@ -55,7 +58,10 @@ def submit_preference_draft(
         "created_at": payload.get("created_at") or submitted_at,
     }
     stamp = datetime.fromisoformat(submitted_at.replace("Z", "+00:00")).strftime("%Y%m%d_%H%M%S")
-    object_key = f"{DRAFT_PREFIX}/{stamp}_{draft['draft_id']}.json"
+    object_key = (
+        f"{tenant_object_prefix(DRAFT_PREFIX, submitter.organisation_id)}"
+        f"{stamp}_{draft['draft_id']}.json"
+    )
     storage.put_text(object_key, json.dumps(draft, indent=2), "application/json")
 
     try:

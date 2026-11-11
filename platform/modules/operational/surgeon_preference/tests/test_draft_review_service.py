@@ -65,10 +65,10 @@ def test_load_pending_drafts_returns_only_reviewable_json_objects():
 def test_load_pending_drafts_can_filter_by_organisation():
     storage = FakeStorage(
         {
-            "gold/operational/drafts/001.json": json.dumps(
+            "gold/operational/drafts/hospital-a/001.json": json.dumps(
                 {**_draft(), "draft_id": "draft-a", "organisation_id": "hospital-a"}
             ),
-            "gold/operational/drafts/002.json": json.dumps(
+            "gold/operational/drafts/hospital-b/002.json": json.dumps(
                 {**_draft(), "draft_id": "draft-b", "organisation_id": "hospital-b"}
             ),
         }
@@ -86,11 +86,11 @@ def test_load_pending_drafts_can_filter_by_organisation():
 def test_load_pending_drafts_can_be_scoped_to_an_organisation():
     storage = FakeStorage(
         {
-            "gold/operational/drafts/default.json": json.dumps(_draft()),
-            "gold/operational/drafts/theatre-a.json": json.dumps(
+            "gold/operational/drafts/default/default.json": json.dumps(_draft()),
+            "gold/operational/drafts/theatre-a/theatre-a.json": json.dumps(
                 {**_draft(), "draft_id": "draft-theatre-a", "organisation_id": "theatre-a"}
             ),
-            "gold/operational/drafts/theatre-b.json": json.dumps(
+            "gold/operational/drafts/theatre-b/theatre-b.json": json.dumps(
                 {**_draft(), "draft_id": "draft-theatre-b", "organisation_id": "theatre-b"}
             ),
         }
@@ -104,13 +104,13 @@ def test_load_pending_drafts_can_be_scoped_to_an_organisation():
 def test_load_drafts_applies_limit_after_organisation_filtering():
     storage = FakeStorage(
         {
-            "gold/operational/drafts/003.json": json.dumps(
+            "gold/operational/drafts/hospital-c/003.json": json.dumps(
                 {**_draft(), "draft_id": "draft-c", "organisation_id": "hospital-c"}
             ),
-            "gold/operational/drafts/002.json": json.dumps(
+            "gold/operational/drafts/hospital-b/002.json": json.dumps(
                 {**_draft(), "draft_id": "draft-b", "organisation_id": "hospital-b"}
             ),
-            "gold/operational/drafts/001.json": json.dumps(
+            "gold/operational/drafts/hospital-a/001.json": json.dumps(
                 {**_draft(), "draft_id": "draft-a", "organisation_id": "hospital-a"}
             ),
         }
@@ -198,7 +198,7 @@ def test_save_review_decision_writes_an_audit_object():
         reviewer_roles=("reviewer",),
     )
 
-    assert key.startswith(f"{REVIEW_DECISION_PREFIX}/")
+    assert key.startswith(f"{REVIEW_DECISION_PREFIX}/default/")
     saved = json.loads(storage.objects[key])
     assert saved["decision"] == "needs_changes"
     assert saved["reviewer_email"] == "reviewer@example.com"
@@ -212,11 +212,12 @@ def test_save_review_payload_preserves_existing_review_id():
         "review_id": "fixed-review-id",
         "decision": "approved",
         "reviewer": "Theatre Coordinator",
+        "organisation_id": "hospital-a",
     }
 
     key = save_review_payload(storage, review)
 
-    assert key.startswith(f"{REVIEW_DECISION_PREFIX}/")
+    assert key.startswith(f"{REVIEW_DECISION_PREFIX}/hospital-a/")
     assert key.endswith("_fixed-review-id.json")
     assert json.loads(storage.objects[key]) == review
 

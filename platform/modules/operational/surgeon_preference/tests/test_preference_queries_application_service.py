@@ -96,6 +96,25 @@ def test_gold_fallback_must_be_scoped_to_the_authorized_organisation():
     assert result["data"]["surgeon_name"].tolist() == ["Dr A"]
 
 
+def test_new_tenant_does_not_download_global_gold_when_fallback_is_disabled():
+    gold_calls = []
+    result = load_preference_cards(
+        user=_user("hospital-new"),
+        organisation_id="hospital-new",
+        settings=object(),
+        gold_loader=lambda: gold_calls.append(True),
+        postgres_loader=lambda _organisation_id: None,
+        membership_repository_factory=lambda _settings: FakeMembershipRepository(
+            _membership("hospital-new")
+        ),
+        allow_gold_fallback=False,
+    )
+
+    assert result["data"] is None
+    assert "no operational preference cards yet" in result["message"]
+    assert gold_calls == []
+
+
 def test_registry_failure_and_unscoped_gold_fail_closed():
     calls = []
     result = load_preference_cards(

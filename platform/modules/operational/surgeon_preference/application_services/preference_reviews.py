@@ -46,6 +46,24 @@ def submit_preference_review(
     if access_error:
         raise PermissionError(access_error)
 
+    submitted_provider = str(draft.get("submitter_identity_provider") or "").strip().lower()
+    submitted_subject = str(draft.get("submitter_identity_subject") or "").strip()
+    reviewer_provider = str(reviewer.identity_provider or "").strip().lower()
+    reviewer_subject = str(reviewer.identity_subject or "").strip()
+    same_identity = bool(
+        submitted_provider
+        and submitted_subject
+        and reviewer_provider == submitted_provider
+        and reviewer_subject == submitted_subject
+    )
+    legacy_email_match = (
+        not (submitted_provider and submitted_subject)
+        and str(draft.get("submitter_email") or "").strip().casefold()
+        == reviewer.email.strip().casefold()
+    )
+    if same_identity or legacy_email_match:
+        raise PermissionError("A draft submitter cannot review their own preference change.")
+
     review = build_review_decision(
         draft=draft,
         reviewer=reviewer.display_name,

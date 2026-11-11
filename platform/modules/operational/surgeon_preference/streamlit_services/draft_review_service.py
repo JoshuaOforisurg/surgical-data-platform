@@ -3,6 +3,8 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any
 
+from streamlit_services.tenant_storage import tenant_object_prefix
+
 
 REVIEW_DECISION_PREFIX = "gold/operational/draft_reviews"
 VALID_REVIEW_DECISIONS = {"approved", "needs_changes", "rejected"}
@@ -20,8 +22,13 @@ def load_drafts(
     organisation_id: str | None = None,
 ) -> list[dict[str, Any]]:
     drafts: list[dict[str, Any]] = []
-    keys = sorted(storage.list_objects(draft_prefix), reverse=True)
     organisation_scope = str(organisation_id or "").strip()
+    scoped_prefix = (
+        tenant_object_prefix(draft_prefix, organisation_scope)
+        if organisation_scope
+        else draft_prefix
+    )
+    keys = sorted(storage.list_objects(scoped_prefix), reverse=True)
 
     for key in keys:
         try:
@@ -161,7 +168,10 @@ def save_review_decision(
 
 def save_review_payload(storage, review: dict[str, Any]) -> str:
     timestamp = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-    key = f"{REVIEW_DECISION_PREFIX}/{timestamp}_{review['review_id']}.json"
+    key = (
+        f"{tenant_object_prefix(REVIEW_DECISION_PREFIX, review['organisation_id'])}"
+        f"{timestamp}_{review['review_id']}.json"
+    )
     storage.put_text(key, json.dumps(review, indent=2), "application/json")
     return key
 

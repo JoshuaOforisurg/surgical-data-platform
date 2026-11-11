@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import re
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
@@ -837,6 +838,133 @@ class BronzeCatalogRepository:
 
         return dict(row) if row else None
 
+    def create_organisation_for_user(
+        self,
+        organisation_name: str,
+        user_email: str,
+        display_name: str,
+        auth_provider: str,
+        identity_subject: str | None = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Create a tenant and grant its authenticated creator the first admin membership."""
+        if not self.enabled:
+            return None
+
+        name = str(organisation_name or "").strip()
+        email = str(user_email or "").strip().lower()
+        display = str(display_name or "").strip() or email
+        if len(name) < 2 or len(name) > 120:
+            raise ValueError("Organisation name must be between 2 and 120 characters.")
+        if not email or "@" not in email:
+            raise ValueError("A valid authenticated email is required to create an organisation.")
+
+        base_slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")[:48].strip("-")
+        if not base_slug:
+            raise ValueError("Organisation name must contain letters or numbers.")
+
+        with psycopg2.connect(self.settings.psycopg2_dsn) as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    INSERT INTO app_workflow.app_users (
+                        user_email, display_name, auth_provider, identity_subject, last_seen_at
+                    ) VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)
+                    ON CONFLICT (user_email) DO UPDATE
+                    SET display_name = EXCLUDED.display_name,
+                        auth_provider = EXCLUDED.auth_provider,
+                        identity_subject = COALESCE(EXCLUDED.identity_subject, app_workflow.app_users.identity_subject),
+                        last_seen_at = CURRENT_TIMESTAMP,
+                        updated_at = CURRENT_TIMESTAMP
+                    """,
+                    (email, display, auth_provider, identity_subject),
+                )
+
+                organisation = None
+                for attempt in range(5):
+                    candidate_id = (
+                        base_slug if attempt == 0
+                        else f"{base_slug[:40]}-{uuid.uuid4().hex[:6]}"
+                    )
+                    cur.execute(
+                        """
+                        INSERT INTO app_workflow.organisations (
+                            organisation_id, organisation_name, status
+                        ) VALUES (%s, %s, 'active')
+                        ON CONFLICT (organisation_id) DO NOTHING
+                        RETURNING organisation_id, organisation_name, status
+                        """,
+                        (candidate_id, name),
+                    )
+                    organisation = cur.fetchone()
+                    if organisation:
+                        break
+                    cur.execute(
+                        """
+                        SELECT organisations.organisation_id,
+                               organisations.organisation_name,
+                               organisations.status
+                        FROM app_workflow.organisations
+                        JOIN app_workflow.organisation_memberships USING (organisation_id)
+                        WHERE organisations.organisation_id = %s
+                          AND lower(organisation_memberships.user_email) = %s
+                          AND organisation_memberships.status = 'active'
+                          AND 'admin' = ANY(organisation_memberships.roles)
+                          AND organisations.status = 'active'
+                        """,
+                        (candidate_id, email),
+                    )
+                    organisation = cur.fetchone()
+                    if organisation:
+                        return dict(organisation)
+
+                if not organisation:
+                    raise RuntimeError("Could not allocate a unique organisation identifier.")
+
+                organisation_id = organisation["organisation_id"]
+                cur.execute(
+                    """
+                    INSERT INTO app_workflow.organisation_memberships (
+                        organisation_id, user_email, roles, status
+                    ) VALUES (%s, %s, %s, 'active')
+                    """,
+                    (organisation_id, email, ["authenticated", "admin"]),
+                )
+                cur.execute(
+                    """
+                    INSERT INTO app_workflow.audit_events (
+                        event_id, event_type, organisation_id, actor_email, actor_name,
+                        actor_roles, entity_type, entity_id, event_payload
+                    ) VALUES (%s, 'organisation_created', %s, %s, %s, %s,
+                              'organisation', %s, %s)
+                    """,
+                    (
+                        str(uuid.uuid4()), organisation_id, email, display,
+                        ["authenticated", "admin"], organisation_id,
+                        Json({"organisation_name": name, "provisioning": "self_service"}),
+                    ),
+                )
+
+        return dict(organisation)
+
+    def get_active_organisation(self, organisation_id: str) -> Optional[Dict[str, Any]]:
+        if not self.enabled:
+            return None
+        safe_id = str(organisation_id or "").strip().lower()
+        if not safe_id:
+            return None
+        with psycopg2.connect(self.settings.psycopg2_dsn) as conn:
+            with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                cur.execute(
+                    """
+                    SELECT organisation_id, organisation_name, status
+                    FROM app_workflow.organisations
+                    WHERE organisation_id = %s AND status = 'active'
+                    """,
+                    (safe_id,),
+                )
+                row = cur.fetchone()
+        return dict(row) if row else None
+
     def get_user_membership(
         self,
         user_email: str,
@@ -1128,6 +1256,7 @@ class BronzeCatalogRepository:
     def list_access_requests(
         self,
         organisation_id: str | None = None,
+        actor_email: str | None = None,
         status: str | None = None,
         user_email: str | None = None,
         limit: int = 100,
@@ -1135,22 +1264,31 @@ class BronzeCatalogRepository:
         if not self.enabled:
             return []
 
-        filters = []
-        params: list[Any] = []
-        if organisation_id:
-            filters.append("requests.organisation_id = %s")
-            params.append(_safe_organisation_id(organisation_id))
+        if not organisation_id:
+            raise PermissionError("An organisation is required to list access requests.")
+        safe_organisation_id = _safe_organisation_id(organisation_id)
+        normalised_actor = str(actor_email or "").strip().lower()
+        requested_user = str(user_email or "").strip().lower() or None
+        if not normalised_actor:
+            raise PermissionError("An authenticated user is required to list access requests.")
+
+        filters = ["requests.organisation_id = %s"]
+        params: list[Any] = [safe_organisation_id]
         if status:
             filters.append("requests.status = %s")
             params.append(status.strip().lower())
-        if user_email:
+        if requested_user:
             filters.append("requests.user_email = %s")
-            params.append(user_email.strip().lower())
-        where_clause = f"WHERE {' AND '.join(filters)}" if filters else ""
+            params.append(requested_user)
+        where_clause = f"WHERE {' AND '.join(filters)}"
         params.append(limit)
 
         with psycopg2.connect(self.settings.psycopg2_dsn) as conn:
             with conn.cursor(cursor_factory=RealDictCursor) as cur:
+                if requested_user != normalised_actor:
+                    assert_active_membership_roles(
+                        cur, normalised_actor, safe_organisation_id, {"admin"}
+                    )
                 cur.execute(
                     f"""
                     SELECT

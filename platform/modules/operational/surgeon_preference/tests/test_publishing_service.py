@@ -89,10 +89,10 @@ def test_load_publishable_drafts_only_returns_approved_pending_publish_items():
 def test_load_publishable_drafts_can_filter_by_organisation():
     storage = FakeStorage(
         {
-            "gold/operational/drafts/001.json": json.dumps(
+            "gold/operational/drafts/hospital-b/001.json": json.dumps(
                 {**_approved_edit_draft(), "draft_id": "draft-a", "organisation_id": "hospital-a"}
             ),
-            "gold/operational/drafts/002.json": json.dumps(
+            "gold/operational/drafts/hospital-b/002.json": json.dumps(
                 {**_approved_edit_draft(), "draft_id": "draft-b", "organisation_id": "hospital-b"}
             ),
         }
@@ -110,10 +110,10 @@ def test_load_publishable_drafts_can_filter_by_organisation():
 def test_load_publishable_drafts_can_be_scoped_to_an_organisation():
     storage = FakeStorage(
         {
-            "gold/operational/drafts/theatre-a.json": json.dumps(
+            "gold/operational/drafts/theatre-a/theatre-a.json": json.dumps(
                 {**_approved_edit_draft(), "organisation_id": "theatre-a"}
             ),
-            "gold/operational/drafts/theatre-b.json": json.dumps(
+            "gold/operational/drafts/theatre-b/theatre-b.json": json.dumps(
                 {
                     **_approved_edit_draft(),
                     "draft_id": "draft-theatre-b",
@@ -131,13 +131,13 @@ def test_load_publishable_drafts_can_be_scoped_to_an_organisation():
 def test_load_publishable_drafts_applies_limit_after_organisation_filtering():
     storage = FakeStorage(
         {
-            "gold/operational/drafts/003.json": json.dumps(
+            "gold/operational/drafts/hospital-c/003.json": json.dumps(
                 {**_approved_edit_draft(), "draft_id": "draft-c", "organisation_id": "hospital-c"}
             ),
-            "gold/operational/drafts/002.json": json.dumps(
+            "gold/operational/drafts/hospital-b/002.json": json.dumps(
                 {**_approved_edit_draft(), "draft_id": "draft-b", "organisation_id": "hospital-b"}
             ),
-            "gold/operational/drafts/001.json": json.dumps(
+            "gold/operational/drafts/hospital-a/001.json": json.dumps(
                 {**_approved_edit_draft(), "draft_id": "draft-a", "organisation_id": "hospital-a"}
             ),
         }
@@ -241,19 +241,21 @@ def test_publish_event_gold_outputs_and_draft_status_are_archived():
         storage,
         _gold_df(),
         publish_event["publish_id"],
-        "gold/operational/latest/gold_operational_preference_cards.csv",
+        "gold/operational/organisations/default/latest/gold_operational_preference_cards.csv",
+        organisation_id="default",
     )
     publish_event = {**publish_event, "published_gold_key": published_key}
     event_key = save_publish_event(storage, publish_event)
     storage.objects[draft["_object_key"]] = json.dumps(draft)
     updated_draft = mark_draft_published(storage, draft, publish_event, event_key)
 
-    assert published_key.startswith("gold/operational/published/")
-    assert "gold/operational/latest/gold_operational_preference_cards.csv" in storage.objects
-    latest_json = "gold/operational/latest/gold_operational_preference_cards.json"
+    assert published_key.startswith("gold/operational/published/default/")
+    latest_csv = "gold/operational/organisations/default/latest/gold_operational_preference_cards.csv"
+    assert latest_csv in storage.objects
+    latest_json = "gold/operational/organisations/default/latest/gold_operational_preference_cards.json"
     assert json.loads(storage.objects[latest_json]) == _gold_df().to_dict("records")
     assert storage.objects[published_key.removesuffix(".csv") + ".json"] == storage.objects[latest_json]
-    assert event_key.startswith(f"{PUBLISH_EVENT_PREFIX}/")
+    assert event_key.startswith(f"{PUBLISH_EVENT_PREFIX}/default/")
     assert json.loads(storage.objects[event_key])["publisher_email"] == "admin@example.com"
     assert updated_draft["status"] == PUBLISHED_DRAFT_STATUS
     assert json.loads(storage.objects[draft["_object_key"]])["publish_event_key"] == event_key

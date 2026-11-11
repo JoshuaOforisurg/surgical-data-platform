@@ -112,7 +112,13 @@ def rollback_preference_card(
     }
     try:
         storage = storage_factory()
-        gold_key = save_published_gold(storage, published_gold, event["publish_id"], source_gold_key)
+        gold_key = save_published_gold(
+            storage,
+            published_gold,
+            event["publish_id"],
+            source_gold_key,
+            organisation_id=organisation_id,
+        )
         event["published_gold_key"] = gold_key
         event_key = save_publish_event(storage, event)
     except Exception as exc:

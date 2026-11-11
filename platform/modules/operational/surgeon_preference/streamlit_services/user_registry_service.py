@@ -243,6 +243,7 @@ def submit_access_request(
     requested_roles: list[str],
     requested_organisation_name: str,
     reason: str,
+    organisation_id: str | None = None,
     repository_factory=BronzeCatalogRepository,
 ) -> tuple[dict[str, Any] | None, str | None]:
     if user is None:
@@ -258,14 +259,25 @@ def submit_access_request(
     try:
         repository = repository_factory(settings)
         repository.initialise()
+        if organisation_id is not None and not str(organisation_id).strip():
+            return None, "Enter a workspace ID to request access."
+        target_organisation_id = str(
+            user.organisation_id if organisation_id is None else organisation_id
+        ).strip()
+        target_organisation_name = requested_organisation_name
+        if organisation_id is not None:
+            organisation = repository.get_active_organisation(target_organisation_id)
+            if not organisation:
+                return None, "That workspace ID was not found or is not accepting access requests."
+            target_organisation_name = str(organisation["organisation_name"])
         request = repository.create_access_request(
             user_email=user.email,
             display_name=user.display_name,
             requested_roles=roles,
-            requested_organisation_name=requested_organisation_name,
+            requested_organisation_name=target_organisation_name,
             reason=reason,
-            organisation_id=user.organisation_id,
-            organisation_name=user.organisation_name,
+            organisation_id=target_organisation_id,
+            organisation_name=target_organisation_name,
         )
     except ValueError as exc:
         return None, str(exc)
@@ -275,23 +287,69 @@ def submit_access_request(
     return request, None
 
 
+def create_organisation_for_user(
+    settings: PostgresSettings | None,
+    user: AppUser | None,
+    organisation_name: str,
+    repository_factory=BronzeCatalogRepository,
+) -> tuple[dict[str, Any] | None, str | None]:
+    if user is None or not user.email.strip():
+        return None, "Sign in before creating an organisation workspace."
+    if settings is None:
+        return None, "Postgres user registry is not configured."
+    try:
+        repository = repository_factory(settings)
+        repository.initialise()
+        organisation = repository.create_organisation_for_user(
+            organisation_name=organisation_name,
+            user_email=user.email,
+            display_name=user.display_name,
+            auth_provider=user.identity_provider or "unknown",
+            identity_subject=user.identity_subject,
+        )
+    except (ValueError, RuntimeError) as exc:
+        return None, str(exc)
+    except Exception as exc:
+        return None, f"Organisation workspace could not be created: {exc}"
+    return organisation, None
+
+
 def list_access_requests(
     settings: PostgresSettings | None,
+    actor: AppUser | None,
     organisation_id: str | None = None,
     status: str | None = None,
-    user_email: str | None = None,
     repository_factory=BronzeCatalogRepository,
 ) -> tuple[list[dict[str, Any]], str | None]:
+    if actor is None or not actor.email.strip():
+        return [], "Sign in before viewing access requests."
     if settings is None:
         return [], "Postgres user registry is not configured."
+
+    requested_org = str(organisation_id or actor.organisation_id or "").strip()
+    if not requested_org or requested_org != actor.organisation_id:
+        return [], "The requested organisation does not match the authenticated workspace."
 
     try:
         repository = repository_factory(settings)
         repository.initialise()
+        membership = repository.get_user_membership(
+            user_email=actor.email,
+            organisation_id=requested_org,
+        )
+        is_active_membership = bool(
+            membership
+            and str(membership.get("status") or "").lower() == ACTIVE_STATUS
+            and str(membership.get("organisation_status") or "").lower() == ACTIVE_STATUS
+        )
+        membership_roles = {
+            str(role).strip().lower() for role in (membership or {}).get("roles") or []
+        }
         requests = repository.list_access_requests(
-            organisation_id=organisation_id,
+            organisation_id=requested_org,
+            actor_email=actor.email,
             status=status,
-            user_email=user_email,
+            user_email=None if is_active_membership and ADMIN_ROLE in membership_roles else actor.email,
         )
     except Exception as exc:
         return [], f"Access requests could not be loaded: {exc}"

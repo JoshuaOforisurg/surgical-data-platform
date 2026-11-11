@@ -37,7 +37,11 @@ from streamlit_services.access_control import (
     user_management_block_reason,
 )
 from streamlit_renderers.preference_card import build_preference_card, current_preference_rows
-from streamlit_services.auth_links import build_login_links, build_logout_link
+from streamlit_services.auth_links import (
+    auth_endpoints_available,
+    build_login_links,
+    build_logout_link,
+)
 from streamlit_services.draft_review_service import (
     REVIEW_DECISION_PREFIX,
     draft_change_rows,
@@ -45,6 +49,7 @@ from streamlit_services.draft_review_service import (
     load_drafts,
     load_pending_drafts,
 )
+from streamlit_services.demo_data import build_synthetic_demo_cards, filter_demo_cards
 from streamlit_services.publishing_service import (
     PUBLISH_EVENT_PREFIX,
     load_publishable_drafts,
@@ -58,6 +63,7 @@ from streamlit_services.streamlit_service import get_storage_client
 from streamlit_services.tenant_access import membership_is_verified
 from streamlit_services.user_registry_service import (
     choose_active_membership,
+    create_organisation_for_user,
     list_access_requests,
     list_user_memberships,
     resolve_access_request,
@@ -65,6 +71,7 @@ from streamlit_services.user_registry_service import (
     sync_user_with_registry,
     update_user_access,
 )
+from streamlit_services.tenant_storage import tenant_latest_gold_key, tenant_object_prefix
 
 
 GOLD_OPERATIONAL_KEY = "gold/operational/latest/gold_operational_preference_cards.csv"
@@ -92,12 +99,6 @@ ENABLE_DRAFT_REVIEWS = os.getenv("ENABLE_DRAFT_REVIEWS", "false").strip().lower(
     "on",
 }
 ENABLE_DRAFT_PUBLISHING = os.getenv("ENABLE_DRAFT_PUBLISHING", "false").strip().lower() in {
-    "1",
-    "true",
-    "yes",
-    "on",
-}
-ENABLE_PUBLIC_SYNTHETIC_DEMO = os.getenv("ENABLE_PUBLIC_SYNTHETIC_DEMO", "false").strip().lower() in {
     "1",
     "true",
     "yes",
@@ -480,7 +481,7 @@ def render_project_footer() -> None:
     )
 
 
-def render_account_bar(user, message: str | None = None) -> None:
+def render_account_bar(user, message: str | None = None, auth_available: bool = True) -> None:
     if not SHOW_AUTH_LINKS:
         return
 
@@ -494,7 +495,7 @@ def render_account_bar(user, message: str | None = None) -> None:
             'target="_self">Sign out</a></span>'
         )
     else:
-        login_links = build_login_links(AUTH_PROVIDER_CONFIG, "/")
+        login_links = build_login_links(AUTH_PROVIDER_CONFIG, "/?view=platform") if auth_available else []
         actions = "".join(
             f'<a class="sp-auth-link" href="{escape(link["href"])}" target="_self">'
             f'Sign in with {escape(link["label"])}</a>'
@@ -548,6 +549,7 @@ def load_current_preference_data(organisation_id: str) -> dict:
         settings=load_settings().postgres,
         gold_loader=load_gold_data,
         postgres_loader=load_operational_postgres_data,
+        allow_gold_fallback=False,
     )
 
 
@@ -650,91 +652,9 @@ def load_postgres_metadata(organisation_id: str) -> dict:
     if not settings or not health.get("reachable"):
         return {"health": health}
 
-    metadata = {
-        "health": health,
-        "runs": _postgres_frame(
-            settings,
-            """
-            SELECT
-                run_id,
-                status,
-                pipeline_version,
-                data_product_version,
-                files_landed,
-                records_processed,
-                gold_operational_key,
-                gold_analytics_key,
-                started_at,
-                completed_at,
-                error_message
-            FROM pipeline_audit.pipeline_runs
-            ORDER BY started_at DESC
-            LIMIT 25
-            """,
-        ),
-        "object_summary": _postgres_frame(
-            settings,
-            """
-            SELECT
-                layer,
-                artifact_type,
-                COUNT(*) AS object_count,
-                SUM(size_bytes) AS total_size_bytes,
-                MAX(created_at) AS latest_created_at
-            FROM metadata_catalog.object_store_objects
-            GROUP BY layer, artifact_type
-            ORDER BY layer, artifact_type
-            """,
-        ),
-        "gold_artifacts": _postgres_frame(
-            settings,
-            """
-            SELECT
-                run_id,
-                artifact_name,
-                object_key,
-                record_count,
-                schema_version,
-                data_product_version,
-                created_at
-            FROM metadata_catalog.gold_artifacts
-            ORDER BY created_at DESC, artifact_name
-            LIMIT 50
-            """,
-        ),
-        "ingested_files": _postgres_frame(
-            settings,
-            """
-            SELECT
-                run_id,
-                original_filename,
-                file_extension,
-                status,
-                record_count,
-                size_bytes,
-                checksum_sha256,
-                created_at,
-                updated_at
-            FROM bronze_raw.ingested_files
-            ORDER BY created_at DESC
-            LIMIT 50
-            """,
-        ),
-        "iceberg": _postgres_frame(
-            settings,
-            """
-            SELECT
-                catalog_name,
-                namespace,
-                warehouse_uri,
-                status,
-                error_message,
-                updated_at
-            FROM iceberg_catalog.catalog_bootstrap
-            ORDER BY updated_at DESC
-            """,
-        ),
-    }
+    # Pipeline/catalog tables are currently global (no organisation_id). Keep
+    # them out of tenant-facing metadata until their ownership is modelled.
+    metadata = {"health": health}
 
     if health.get("valid"):
         metadata["workflow_reviews"] = _postgres_frame(
@@ -1006,69 +926,211 @@ draft_submission_disabled_reason = submission_block_reason(current_user, ENABLE_
 if user_registry_warning:
     st.warning(user_registry_warning)
 
-if not membership_verified:
+platform_view = str(st.query_params.get("view", "demo")).strip().lower() == "platform"
+azure_auth_available = auth_endpoints_available(
+    st.context.headers,
+    os.getenv("APP_AUTH_ENDPOINTS_ENABLED"),
+)
+
+
+def render_demo_items(label: str, items, show_quantity: bool = False) -> None:
+    st.markdown(f"**{label}**")
+    lines = []
+    for item in items or []:
+        if isinstance(item, dict):
+            name = str(item.get("name") or "").strip()
+            quantity = item.get("quantity")
+            suffix = f" (quantity: {quantity})" if show_quantity and quantity else ""
+        else:
+            name = str(item or "").strip()
+            suffix = ""
+        if name:
+            lines.append(f"- {escape(name)}{escape(suffix)}")
+
+    st.markdown("\n".join(lines) if lines else "Not specified")
+
+
+if not platform_view:
     st.title("Surgeon Preference")
+    st.write(
+        "A workspace for theatre teams to find current surgeon-specific setup, "
+        "propose preference updates, and review changes before they are published. "
+        "This preview uses synthetic data only; no patient or hospital data is used."
+    )
+    if st.button("Enter the multi-hospital platform", type="primary"):
+        st.query_params["view"] = "platform"
+        st.rerun()
+
+    st.divider()
+    st.subheader("Explore a sample preference card")
+
+    @st.cache_data(show_spinner=False)
+    def load_demo_cards():
+        return build_synthetic_demo_cards()
+
+    demo_df = load_demo_cards()
+    demo_query = st.text_input(
+        "Search by surgeon, specialty, procedure or alias",
+        placeholder="For example, Mr Patel, hip, THR or TKA",
+        key="demo_card_search",
+    )
+    demo_search_signature = demo_query.strip().casefold()
+    if st.session_state.get("demo_search_signature") != demo_search_signature:
+        st.session_state.pop("demo_card_selection", None)
+        st.session_state["demo_search_signature"] = demo_search_signature
+
+    matching_demo_cards = filter_demo_cards(demo_df, demo_query).reset_index(drop=True)
+
+    if matching_demo_cards.empty:
+        st.info("No sample preference cards match that search.")
+    else:
+        selected_demo_index = st.selectbox(
+            "Preference card",
+            options=range(len(matching_demo_cards)),
+            format_func=lambda index: (
+                f"{matching_demo_cards.iloc[index]['surgeon_name']}  ·  "
+                f"{matching_demo_cards.iloc[index]['procedure']}"
+            ),
+            key="demo_card_selection",
+        )
+        demo_card = matching_demo_cards.iloc[selected_demo_index]
+        st.markdown(f"### {demo_card['surgeon_name']}")
+        st.caption(f"{demo_card['specialty']}  ·  {demo_card['procedure']}")
+        st.caption("Illustrative synthetic card · confirm requirements against local policy")
+
+        count_col_1, count_col_2, count_col_3 = st.columns(3)
+        count_col_1.metric("Instrument items", len(demo_card["instruments"]))
+        count_col_2.metric("Consumables", len(demo_card["consumables"]))
+        count_col_3.metric("Disposables", len(demo_card["disposables"]))
+
+        if demo_card["instrument_system"] or demo_card["implant_system"]:
+            system_col_1, system_col_2 = st.columns(2)
+            if demo_card["instrument_system"]:
+                system_col_1.write(f"**Instrument system:** {demo_card['instrument_system']}")
+            if demo_card["implant_system"]:
+                system_col_2.write(f"**Implant system:** {demo_card['implant_system']}")
+
+        setup_col, supply_col = st.columns(2)
+        with setup_col:
+            st.subheader("Theatre set-up")
+            render_demo_items("Instruments", demo_card["instruments"], show_quantity=True)
+            render_demo_items("Equipment", demo_card["equipment"])
+            render_demo_items("Draping", demo_card["draping"])
+        with supply_col:
+            st.subheader("Consumables and disposables")
+            render_demo_items("Consumables", demo_card["consumables"])
+            render_demo_items("Disposables", demo_card["disposables"])
+
+        st.divider()
+        closure_col_1, closure_col_2, closure_col_3 = st.columns(3)
+        with closure_col_1:
+            render_demo_items("Implants", demo_card["implants"])
+        with closure_col_2:
+            render_demo_items("Sutures", demo_card["sutures"])
+        with closure_col_3:
+            render_demo_items("Dressings", demo_card["dressings"])
+
+        st.subheader("Preparation and instructions")
+        prep_col_1, prep_col_2, prep_col_3 = st.columns(3)
+        prep_col_1.write(f"**Positioning**\n\n{demo_card['positioning'] or 'Not specified'}")
+        prep_col_2.write(f"**Anaesthetic**\n\n{demo_card['anaesthetic'] or 'Not specified'}")
+        prep_col_3.write(f"**Skin preparation**\n\n{demo_card['skin_prep'] or 'Not specified'}")
+        render_demo_items("Special instructions", demo_card["special_instructions"])
+
+        st.caption("Synthetic preview only. No quantities are inferred for consumables or disposables.")
+
+    render_project_footer()
+    st.stop()
+
+if not membership_verified:
+
+    st.title("Secure platform")
+    st.write(
+        "Sign in to request access to an organisation workspace. Access is granted "
+        "only through an approved organisation membership."
+    )
+    if st.button("Back to synthetic demo"):
+        st.query_params["view"] = "demo"
+        st.rerun()
     render_account_bar(
         current_user,
-        "Viewing synthetic demo data only. Sign in and request organisation access to use a workspace.",
+        "Continue with your organisation identity provider to request workspace access.",
+        auth_available=azure_auth_available,
     )
-    if identity_user and current_user and postgres_settings:
-        st.subheader("Request organisation access")
-        with st.form("workspace_access_request_form"):
-            requested_organisation = st.text_input(
-                "Organisation or hospital",
-                value=active_organisation_name,
+    if not identity_user and not azure_auth_available:
+        st.info(
+            "Microsoft sign-in is handled by Azure Container Apps Authentication and is "
+            "available on the hosted platform. This local demo has no identity provider, "
+            "so it cannot authenticate an account."
+        )
+
+    if identity_user and current_user and postgres_settings and not active_membership_rows:
+        st.subheader("Create an organisation workspace")
+        st.write(
+            "Register your organisation. You will become its first workspace administrator; "
+            "this does not grant access to any other organisation."
+        )
+        with st.form("create_organisation_form"):
+            new_organisation_name = st.text_input(
+                "Organisation name",
+                placeholder="Example: Northside Teaching Hospital",
+                max_chars=120,
             )
-            requested_roles = st.multiselect(
+            create_organisation_submitted = st.form_submit_button(
+                "Create workspace", type="primary"
+            )
+        if create_organisation_submitted:
+            organisation, error_message = create_organisation_for_user(
+                settings=postgres_settings,
+                user=identity_user,
+                organisation_name=new_organisation_name,
+            )
+            if error_message:
+                st.error(error_message)
+            elif organisation:
+                st.session_state["workspace_selection"] = organisation["organisation_id"]
+                st.success(
+                    f"Workspace created: {organisation['organisation_name']} "
+                    f"({organisation['organisation_id']}). You are its first administrator."
+                )
+                st.rerun()
+
+        st.subheader("Request to join an existing workspace")
+        st.caption("Ask the workspace administrator for its workspace ID before requesting access.")
+        with st.form("join_organisation_form"):
+            join_organisation_id = st.text_input(
+                "Workspace ID", placeholder="Example: northside-teaching-hospital"
+            )
+            join_roles = st.multiselect(
                 "Requested access",
                 [EDITOR_ROLE, REVIEWER_ROLE],
                 default=[EDITOR_ROLE],
             )
-            request_reason = st.text_area(
+            join_reason = st.text_area(
                 "Reason",
                 placeholder="Describe your role in maintaining theatre preference cards.",
             )
-            request_submitted = st.form_submit_button("Submit Access Request")
-        if request_submitted:
+            join_submitted = st.form_submit_button("Request to join")
+        if join_submitted:
             access_request, error_message = submit_access_request(
                 settings=postgres_settings,
-                user=current_user,
-                requested_roles=requested_roles,
-                requested_organisation_name=requested_organisation,
-                reason=request_reason,
+                user=identity_user,
+                requested_roles=join_roles,
+                requested_organisation_name="",
+                reason=join_reason,
+                organisation_id=join_organisation_id,
             )
             if error_message:
                 st.error(error_message)
             else:
-                st.success("Access request submitted. Access remains pending until approved.")
+                st.success(
+                    "Join request submitted. Access stays pending until an administrator "
+                    "of that workspace approves it."
+                )
                 st.caption(f"Request ID: {access_request['access_request_id']}")
     elif identity_user and membership_error:
         st.info("Organisation access could not be verified. Tenant data is unavailable.")
 
-    if ENABLE_PUBLIC_SYNTHETIC_DEMO:
-        st.subheader("Synthetic preference-card demo")
-        demo_df = load_gold_data()
-        if demo_df is not None and not demo_df.empty:
-            demo_columns = [
-                column
-                for column in [
-                    "surgeon_name",
-                    "specialty",
-                    "procedure",
-                    "instrument_system",
-                    "instrument_set",
-                    "consumables",
-                    "disposables",
-                    "implants",
-                    "special_instructions",
-                ]
-                if column in demo_df.columns
-            ]
-            st.dataframe(demo_df[demo_columns], width="stretch", hide_index=True)
-        else:
-            st.info("Synthetic demo data is not currently available.")
-    else:
-        st.info("No active organisation membership was found. Tenant data is not available.")
     render_project_footer()
     st.stop()
 
@@ -1080,8 +1142,15 @@ preference_data = load_current_preference_data(active_organisation_id)
 df = preference_data["data"]
 
 if df is None or df.empty:
-    st.warning("No current preference data found. Run the pipeline first.")
-    st.stop()
+    df = pd.DataFrame(columns=["surgeon_name", "procedure"])
+    preference_data["data"] = df
+    preference_data["source_layer"] = "Empty workspace"
+    preference_data["fallback_used"] = False
+    preference_data["message"] = (
+        "This workspace has no published preference cards yet. Use Create draft "
+        "to start the organisation's catalogue."
+    )
+    st.info(preference_data["message"])
 
 # ----------------------------
 # VALIDATION
@@ -1162,6 +1231,13 @@ def render_overview() -> None:
         st.markdown("#### Audit")
         st.write("Check run metadata, object storage outputs, and clinical references.")
 
+    if current_df.empty:
+        st.info(
+            "This new workspace is ready. Add its first preference-card draft, then "
+            "assign a reviewer and publisher through workspace access management."
+        )
+        return
+
     render_product_readiness()
 
     st.subheader("Current dataset")
@@ -1177,11 +1253,14 @@ def render_overview() -> None:
         ]
         if column in current_df.columns
     ]
-    st.dataframe(
-        current_df[preview_columns].sort_values(preview_columns[:1]),
-        width="stretch",
-        hide_index=True,
-    )
+    if preview_columns and not current_df.empty:
+        st.dataframe(
+            current_df[preview_columns].sort_values(preview_columns[0]),
+            width="stretch",
+            hide_index=True,
+        )
+    else:
+        st.info("No preference cards have been published in this workspace yet.")
 
 
 def _display_value(value) -> str:
@@ -1210,7 +1289,7 @@ def render_product_readiness() -> None:
         current_gold=current_df,
         drafts=drafts,
         metadata=load_postgres_metadata(active_organisation_id),
-        latest_manifest=load_latest_run_manifest(),
+        latest_manifest=None,
     )
     status_labels = {
         "ready": "Ready",
@@ -1389,7 +1468,7 @@ def render_card_history(surgeon_name: str, procedure_name: str | None) -> None:
                     organisation_name=active_organisation_name,
                     settings=load_settings().postgres,
                     storage_factory=get_storage_client,
-                    source_gold_key=GOLD_OPERATIONAL_KEY,
+                    source_gold_key=tenant_latest_gold_key(active_organisation_id),
                 )
                 if not rollback_result.rolled_back:
                     st.error(rollback_result.error or rollback_result.message)
@@ -1422,7 +1501,11 @@ with view_tab:
     with search_surgeon_col:
         surgeon_query = st.text_input("Search surgeon", key="card_search_surgeon")
     with search_procedure_col:
-        procedure_query = st.text_input("Search procedure", key="card_search_procedure")
+        procedure_query = st.text_input(
+            "Search procedure",
+            key="card_search_procedure",
+            placeholder="e.g. hip, THR or total hip replacement",
+        )
     filtered_df = search_preference_cards(current_df, surgeon_query, procedure_query)
     st.caption(f"{len(filtered_df)} matching preference cards")
 
@@ -1488,10 +1571,20 @@ with edit_tab:
             "but only authorised users can save changes."
         )
 
-    edit_surgeon = st.selectbox("Surgeon", surgeons, key="edit_surgeon")
+    edit_surgeon = st.selectbox(
+        "Surgeon",
+        surgeons or ["No preference cards yet"],
+        disabled=not surgeons,
+        key="edit_surgeon",
+    )
     edit_df = current_df[current_df["surgeon_name"] == edit_surgeon]
     edit_procedures = edit_df["procedure"].dropna().unique().tolist()
-    edit_procedure = st.selectbox("Procedure", edit_procedures, key="edit_procedure")
+    edit_procedure = st.selectbox(
+        "Procedure",
+        edit_procedures or ["No procedures yet"],
+        disabled=not edit_procedures,
+        key="edit_procedure",
+    )
     selected_rows = edit_df[edit_df["procedure"] == edit_procedure]
 
     if not selected_rows.empty:
@@ -1522,7 +1615,7 @@ with edit_tab:
                 "procedure_id": current.get("procedure_id"),
                 "original": {field: current.get(field) for field in EDITABLE_FIELDS},
                 "proposed": edited,
-                "source_gold_key": GOLD_OPERATIONAL_KEY,
+                "source_gold_key": tenant_latest_gold_key(active_organisation_id),
             }
             try:
                 submission = save_draft(draft, current_user)
@@ -1581,7 +1674,7 @@ with create_tab:
             "procedure": new_procedure,
             "subspecialty": new_subspecialty,
             "proposed": new_fields,
-            "source_gold_key": GOLD_OPERATIONAL_KEY,
+            "source_gold_key": tenant_latest_gold_key(active_organisation_id),
         }
         try:
             submission = save_draft(draft, current_user)
@@ -1627,7 +1720,9 @@ with review_tab:
         DRAFT_PREFIX,
         organisation_id=active_organisation_id,
     )
-    review_keys = storage.list_objects(REVIEW_DECISION_PREFIX)
+    review_keys = storage.list_objects(
+        tenant_object_prefix(REVIEW_DECISION_PREFIX, active_organisation_id)
+    )
 
     review_col_1, review_col_2 = st.columns(2)
     review_col_1.metric("Pending drafts", len(pending_drafts))
@@ -1728,7 +1823,9 @@ with publish_tab:
         DRAFT_PREFIX,
         organisation_id=active_organisation_id,
     )
-    publish_event_keys = storage.list_objects(PUBLISH_EVENT_PREFIX)
+    publish_event_keys = storage.list_objects(
+        tenant_object_prefix(PUBLISH_EVENT_PREFIX, active_organisation_id)
+    )
 
     publish_col_1, publish_col_2 = st.columns(2)
     publish_col_1.metric("Approved drafts awaiting publish", len(publishable_drafts))
@@ -1795,7 +1892,7 @@ with publish_tab:
                         settings=load_settings().postgres,
                         storage_factory=lambda: storage,
                         editable_fields=EDITABLE_FIELDS,
-                        source_gold_key=GOLD_OPERATIONAL_KEY,
+                        source_gold_key=tenant_latest_gold_key(active_organisation_id),
                         published_at=published_at,
                     )
                     if not publish_result.operational_published:
@@ -1846,8 +1943,8 @@ with access_tab:
         if postgres_settings and not current_user.can_manage_users:
             user_access_requests, user_access_request_error = list_access_requests(
                 postgres_settings,
+                actor=current_user,
                 organisation_id=active_organisation_id,
-                user_email=current_user.email,
             )
 
     st.markdown("#### Request access")
@@ -1947,6 +2044,7 @@ with access_tab:
         else:
             pending_requests, pending_error = list_access_requests(
                 postgres_settings,
+                actor=current_user,
                 organisation_id=active_organisation_id,
                 status="pending_review",
             )
@@ -2094,7 +2192,9 @@ with metadata_tab:
     storage = get_storage_client()
     draft_rows = load_drafts(storage, DRAFT_PREFIX, organisation_id=active_organisation_id)
     draft_keys = [draft["_object_key"] for draft in draft_rows]
-    review_keys = storage.list_objects(REVIEW_DECISION_PREFIX)
+    review_keys = storage.list_objects(
+        tenant_object_prefix(REVIEW_DECISION_PREFIX, active_organisation_id)
+    )
     pending_count = sum(1 for draft in draft_rows if draft.get("status") == "pending_review")
     st.metric("Drafts pending", pending_count)
     st.metric("Review decisions", len(review_keys))
@@ -2146,11 +2246,6 @@ with metadata_tab:
         st.success(postgres_health["message"])
 
     postgres_sections = [
-        ("Pipeline runs", "runs"),
-        ("Object store objects", "object_summary"),
-        ("Gold artifacts", "gold_artifacts"),
-        ("Bronze ingested files", "ingested_files"),
-        ("Iceberg catalog", "iceberg"),
         ("Workflow reviews", "workflow_reviews"),
         ("Workflow audit events", "workflow_audit"),
         ("Operational current cards", "operational_current_cards"),
@@ -2163,7 +2258,7 @@ with metadata_tab:
     ]
     for label, key in postgres_sections:
         if key in postgres_metadata:
-            with st.expander(label, expanded=key in {"runs", "object_summary"}):
+            with st.expander(label):
                 st.dataframe(postgres_metadata[key], width="stretch", hide_index=True)
 
     st.subheader("Clinical reference metadata")

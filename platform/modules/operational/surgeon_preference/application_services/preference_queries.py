@@ -27,6 +27,7 @@ def load_preference_cards(
     settings: PostgresSettings | None,
     gold_loader: Callable[[], pd.DataFrame | None],
     postgres_loader: Callable[[str], pd.DataFrame | None] | None = None,
+    allow_gold_fallback: bool = True,
     membership_repository_factory=BronzeCatalogRepository,
     preference_repository_factory=PreferenceCardRepository,
 ) -> dict[str, Any]:
@@ -70,6 +71,12 @@ def load_preference_cards(
             "fallback_used": False,
             "message": "Current cards loaded from app_workflow.preference_cards.",
         }
+
+    if not allow_gold_fallback:
+        return _unavailable(
+            "This organisation has no operational preference cards yet. "
+            "A workspace-scoped Gold snapshot is not configured."
+        )
 
     scoped_gold = scope_snapshot_to_organisation(gold_loader(), requested_org)
     if scoped_gold is not None and not scoped_gold.empty:

@@ -119,7 +119,11 @@ def publish_preference_draft(
             }
         )
         gold_key = save_published_gold(
-            storage, published_gold, publish_event["publish_id"], source_gold_key
+            storage,
+            published_gold,
+            publish_event["publish_id"],
+            source_gold_key,
+            organisation_id=organisation_id,
         )
         publish_event["published_gold_key"] = gold_key
         event_key = save_publish_event(storage, publish_event)

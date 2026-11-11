@@ -46,3 +46,17 @@ def build_login_links(raw_provider_value: str | None, redirect_path: str = "/") 
 def build_logout_link(redirect_path: str = "/") -> str:
     redirect = quote(redirect_path or "/", safe="/")
     return f"/.auth/logout?post_logout_redirect_uri={redirect}"
+
+
+def auth_endpoints_available(headers, explicit_setting: str | None = None) -> bool:
+    """Avoid presenting Azure's /.auth routes as usable on a local Streamlit server."""
+    if explicit_setting is not None:
+        return explicit_setting.strip().lower() in {"1", "true", "yes", "on"}
+
+    host = ""
+    for key, value in (headers or {}).items():
+        if key.lower() in {"host", "x-forwarded-host"} and value:
+            host = str(value).split(",", 1)[0].strip().lower()
+            break
+    hostname = host.rsplit(":", 1)[0]
+    return bool(hostname and hostname not in {"localhost", "127.0.0.1", "::1"})

@@ -84,6 +84,46 @@ def test_review_application_service_records_authorized_decision():
     assert json.loads(storage.objects["drafts/draft-1.json"])["status"] == "approved_pending_publish"
 
 
+def test_submitter_cannot_review_own_draft_by_email():
+    repo = repository({})
+    storage = FakeStorage()
+    own_draft = {**draft(), "submitter_email": " REVIEWER@example.com "}
+
+    with pytest.raises(PermissionError, match="cannot review their own"):
+        submit_preference_review(
+            own_draft, reviewer(), "approved", "", organisation_id="hospital-a",
+            organisation_name="Hospital A", settings=object(),
+            storage_factory=lambda: storage,
+            repository_factory=lambda _settings: repo,
+        )
+
+    assert repo.review is None
+
+
+def test_submitter_cannot_review_own_draft_by_provider_subject():
+    repo = repository({})
+    storage = FakeStorage()
+    same_user = AppUser(
+        **{**reviewer().__dict__, "identity_provider": "google", "identity_subject": "person-123"}
+    )
+    own_draft = {
+        **draft(),
+        "submitter_email": "changed-address@example.com",
+        "submitter_identity_provider": "Google",
+        "submitter_identity_subject": "person-123",
+    }
+
+    with pytest.raises(PermissionError, match="cannot review their own"):
+        submit_preference_review(
+            own_draft, same_user, "approved", "", organisation_id="hospital-a",
+            organisation_name="Hospital A", settings=object(),
+            storage_factory=lambda: storage,
+            repository_factory=lambda _settings: repo,
+        )
+
+    assert repo.review is None
+
+
 @pytest.mark.parametrize("membership", [
     {"roles": ["editor"]},
     {"status": "suspended"},

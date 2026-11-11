@@ -2,6 +2,7 @@ from streamlit_services.access_control import AppUser
 from streamlit_services.user_registry_service import (
     initial_registry_status,
     choose_active_membership,
+    create_organisation_for_user,
     list_access_requests,
     list_user_memberships,
     merge_registry_user,
@@ -54,6 +55,24 @@ class FakeRepository:
             "requested_organisation_name": kwargs["requested_organisation_name"],
             "reason": kwargs["reason"],
             "status": "pending_review",
+        }
+
+    def get_active_organisation(self, organisation_id):
+        self.seen_payload = {"lookup_organisation_id": organisation_id}
+        if organisation_id == "hospital-a":
+            return {
+                "organisation_id": "hospital-a",
+                "organisation_name": "Hospital A",
+                "status": "active",
+            }
+        return None
+
+    def create_organisation_for_user(self, **kwargs):
+        self.seen_payload = kwargs
+        return {
+            "organisation_id": "northside-hospital",
+            "organisation_name": kwargs["organisation_name"],
+            "status": "active",
         }
 
     def list_access_requests(self, **kwargs):
@@ -527,11 +546,127 @@ def test_submit_access_request_writes_pending_request():
     assert request["status"] == "pending_review"
 
 
-def test_list_access_requests_uses_repository_filters():
+def test_join_request_uses_server_resolved_workspace_name():
+    user = AppUser(
+        email="viewer@example.com",
+        display_name="Viewer",
+        roles=("authenticated",),
+        organisation_id="default",
+    )
     repository = FakeRepository(row=None)
+
+    request, error = submit_access_request(
+        settings=object(),
+        user=user,
+        requested_roles=["editor"],
+        requested_organisation_name="Forged hospital name",
+        reason="I work in theatres.",
+        organisation_id="hospital-a",
+        repository_factory=lambda settings: repository,
+    )
+
+    assert error is None
+    assert request["status"] == "pending_review"
+    assert repository.seen_payload == {
+        "user_email": "viewer@example.com",
+        "display_name": "Viewer",
+        "requested_roles": ["authenticated", "editor"],
+        "requested_organisation_name": "Hospital A",
+        "reason": "I work in theatres.",
+        "organisation_id": "hospital-a",
+        "organisation_name": "Hospital A",
+    }
+
+
+def test_join_request_rejects_unknown_workspace_id():
+    user = AppUser(
+        email="viewer@example.com",
+        display_name="Viewer",
+        roles=("authenticated",),
+        organisation_id="default",
+    )
+    request, error = submit_access_request(
+        settings=object(),
+        user=user,
+        requested_roles=["editor"],
+        requested_organisation_name="",
+        reason="I work in theatres.",
+        organisation_id="not-a-workspace",
+        repository_factory=lambda settings: FakeRepository(row=None),
+    )
+
+    assert request is None
+    assert error == "That workspace ID was not found or is not accepting access requests."
+
+
+def test_join_request_rejects_blank_workspace_id_instead_of_defaulting():
+    user = AppUser(
+        email="viewer@example.com",
+        display_name="Viewer",
+        roles=("authenticated",),
+        organisation_id="default",
+    )
+    repository = FakeRepository(row=None)
+    request, error = submit_access_request(
+        settings=object(),
+        user=user,
+        requested_roles=["editor"],
+        requested_organisation_name="",
+        reason="I work in theatres.",
+        organisation_id="  ",
+        repository_factory=lambda settings: repository,
+    )
+
+    assert request is None
+    assert error == "Enter a workspace ID to request access."
+    assert repository.seen_payload is None
+
+
+def test_create_organisation_grants_no_roles_in_request_payload():
+    user = AppUser(
+        email="founder@example.com",
+        display_name="Founder",
+        roles=("authenticated",),
+        identity_provider="aad",
+        identity_subject="subject-1",
+    )
+    repository = FakeRepository(row=None)
+
+    organisation, error = create_organisation_for_user(
+        settings=object(),
+        user=user,
+        organisation_name="Northside Hospital",
+        repository_factory=lambda settings: repository,
+    )
+
+    assert error is None
+    assert organisation["organisation_id"] == "northside-hospital"
+    assert repository.seen_payload == {
+        "organisation_name": "Northside Hospital",
+        "user_email": "founder@example.com",
+        "display_name": "Founder",
+        "auth_provider": "aad",
+        "identity_subject": "subject-1",
+    }
+
+
+def test_list_access_requests_uses_repository_filters():
+    repository = FakeRepository(row={
+        "organisation_id": "hospital-a",
+        "roles": ["authenticated", "admin"],
+        "status": "active",
+        "organisation_status": "active",
+    })
+    actor = AppUser(
+        email="admin@example.com",
+        display_name="Admin",
+        roles=("authenticated", "admin"),
+        organisation_id="hospital-a",
+    )
 
     requests, error = list_access_requests(
         settings=object(),
+        actor=actor,
         organisation_id="hospital-a",
         status="pending_review",
         repository_factory=lambda settings: repository,
@@ -543,17 +678,24 @@ def test_list_access_requests_uses_repository_filters():
         "organisation_id": "hospital-a",
         "status": "pending_review",
         "user_email": None,
+        "actor_email": "admin@example.com",
     }
     assert requests[0]["access_request_id"] == "request-1"
 
 
 def test_list_access_requests_can_filter_by_user_email():
     repository = FakeRepository(row=None)
+    actor = AppUser(
+        email="viewer@example.com",
+        display_name="Viewer",
+        roles=("authenticated",),
+        organisation_id="hospital-a",
+    )
 
     requests, error = list_access_requests(
         settings=object(),
+        actor=actor,
         organisation_id="hospital-a",
-        user_email="viewer@example.com",
         repository_factory=lambda settings: repository,
     )
 
@@ -562,8 +704,30 @@ def test_list_access_requests_can_filter_by_user_email():
         "organisation_id": "hospital-a",
         "status": None,
         "user_email": "viewer@example.com",
+        "actor_email": "viewer@example.com",
     }
     assert requests[0]["user_email"] == "viewer@example.com"
+
+
+def test_list_access_requests_requires_authenticated_matching_workspace():
+    repository = FakeRepository(row=None)
+    actor = AppUser(
+        email="viewer@example.com",
+        display_name="Viewer",
+        roles=("authenticated",),
+        organisation_id="hospital-a",
+    )
+
+    requests, error = list_access_requests(
+        settings=object(),
+        actor=actor,
+        organisation_id="hospital-b",
+        repository_factory=lambda settings: repository,
+    )
+
+    assert requests == []
+    assert "does not match" in error
+    assert repository.initialised is False
 
 
 def test_resolve_access_request_records_admin_decision():

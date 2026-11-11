@@ -55,7 +55,7 @@ def test_draft_submission_is_ui_independent_and_tenant_scoped():
     )
 
     assert result.audit_saved is True
-    assert result.object_key.startswith("gold/operational/drafts/20261018_120000_")
+    assert result.object_key.startswith("gold/operational/drafts/hospital-a/20261018_120000_")
     assert result.draft["organisation_id"] == "hospital-a"
     assert result.draft["submitter_email"] == user.email
     assert repository.recorded_draft == (result.draft, result.object_key)

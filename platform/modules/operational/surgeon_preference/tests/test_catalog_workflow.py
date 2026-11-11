@@ -4,6 +4,14 @@ from bronze_Ingestion.catalog import BronzeCatalogRepository
 def test_record_draft_review_decision_is_noop_when_postgres_disabled():
     repository = BronzeCatalogRepository(settings=None)
 
+    assert repository.create_organisation_for_user(
+        organisation_name="Hospital",
+        user_email="owner@example.com",
+        display_name="Owner",
+        auth_provider="local_env",
+    ) is None
+    assert repository.get_active_organisation("hospital") is None
+
     repository.record_draft_review_decision(
         {
             "review_id": "00000000-0000-0000-0000-000000000001",

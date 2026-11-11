@@ -31,6 +31,31 @@ def test_either_filter_can_be_used_independently(cards):
     assert len(by_procedure) == 2
 
 
+def test_procedure_search_accepts_clinical_aliases(cards):
+    result = filter_preference_cards(cards, procedure_query="THR")
+
+    assert result["procedure"].tolist() == ["Total Hip Replacement", "Total Hip Replacement"]
+
+
+def test_combined_search_accepts_procedure_alias_with_surgeon(cards):
+    result = filter_preference_cards(cards, surgeon_query="Daniel", procedure_query="THR")
+
+    assert result["surgeon_name"].tolist() == ["Mr Daniel Mensah"]
+
+
+def test_short_alias_does_not_match_inside_another_procedure_word():
+    cards = pd.DataFrame(
+        [
+            {"surgeon_name": "Dr Hip", "procedure": "Total Hip Replacement"},
+            {"surgeon_name": "Dr Knee", "procedure": "Total Knee Arthroplasty"},
+        ]
+    )
+
+    result = filter_preference_cards(cards, procedure_query="THR")
+
+    assert result["procedure"].tolist() == ["Total Hip Replacement"]
+
+
 def test_blank_search_returns_all_cards(cards):
     assert len(filter_preference_cards(cards)) == len(cards)
 
