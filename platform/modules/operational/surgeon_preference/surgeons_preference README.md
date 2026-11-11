@@ -1,278 +1,171 @@
-# Surgeon Preference Card Data Product
+# Surgeon Preference
 
-This module is the surgeon preference-card data product within the wider
-surgical data platform. It converts messy source records into clinically
-enriched, versioned operational cards and provides a controlled Streamlit
-workflow for viewing, drafting, reviewing, and publishing changes.
-
-The public demonstration is available at
-[www.surgeonpreference.com](https://www.surgeonpreference.com). It uses
-synthetic data and must not be used to collect patient-identifiable or
-confidential hospital information.
-
-For the execution checklist, local database guide, and workflow design notes,
-see the documents linked from the [platform README](../../../../README.md).
+Surgeon Preference is an operational data product for theatre teams to find
+current preference cards and manage proposed updates through a controlled
+human-review workflow. Its data pipeline validates and versions card data for
+the application. The current interface is Streamlit. The product uses
+synthetic data and is not approved for real clinical use.
 
 ## Current Status
 
-The local Surgeon Preference product has a working pipeline and controlled
-preference-card workflow. It is still under hardening and is not ready for
-real hospital data or external multi-tenant use. Current local capabilities:
+The repository contains a locally testable preference-card pipeline and a
+tenant-aware workflow foundation. It is still being hardened and is not ready
+for hospital onboarding, confidential hospital data, or clinical operation.
 
-- clinically aligned synthetic source-data generation at 1000-file scale;
-- local files, directories, and object-storage keys or prefixes as inputs;
-- Landing, Bronze, Silver A, Silver B, and Gold processing;
-- clinical reference matching, validation, readiness states, and quarantine;
-- audit, catalogue, workflow, and user-registry metadata in PostgreSQL;
-- MinIO locally and Azure Blob Storage in cloud deployments;
-- versioned operational and analytics Gold artifacts;
-- a Dockerized Streamlit application and dedicated batch-job image; and
-- Azure Data Factory-triggered Azure Container App Job execution.
+Implemented locally:
 
-The tenant-aware Version 2 foundation includes:
+- Synthetic preference-card generation, including aggregate or partitioned
+  structured input files.
+- Landing, Bronze, Silver A, Silver B, and Gold processing with source
+  checksums, run/file lineage, contract and quality checks, quarantine, and
+  replay of failed pipeline runs.
+- Clinical enrichment for procedure and instrument-system alignment, required
+  items, and procedure-specific instructions.
+- PostgreSQL-backed operational current cards, card versions, workflow state,
+  user/organisation metadata, and pipeline catalogue metadata.
+- MinIO object storage for landed inputs and versioned Silver/Gold artifacts.
+- Streamlit synthetic demo and tenant-scoped workspace workflow.
+- Membership-based roles and local two-organisation integration coverage.
+- Draft, review, publish, history, and rollback workflows.
 
-- Azure-managed identity integration through forwarded authentication headers;
-- application users, organisations, memberships, and access requests;
-- role-controlled draft submission, human review, and publishing;
-- organisation identifiers on workflow and audit payloads; and
-- separate editor, reviewer, administrator, and authenticated-user roles.
+The default local workspace needs fresh end-to-end verification: the read-only
+verifier currently finds that the latest PostgreSQL run references a missing
+MinIO manifest. Do not present the default local workspace as a freshly
+verified run until it has been rerun and checked.
 
-Tenant isolation has local integration coverage for two organisations,
-including card reads/history, scoped drafts, and role-gated writes. The full
-cross-tenant matrix, PostgreSQL row-level security, account-linking/email
-change, and Azure validation remain open. Do not use this as a clinical
-production service.
-
-## Implemented Architecture
+## Architecture
 
 ```text
-Synthetic or authorised source files
-        |
-        v
-Object storage landing/content/{sha256}/{filename}
-        |
-        v
-PostgreSQL Bronze ledger, run-to-file links, and metadata catalogue
-        |
-        v
-Silver A: structural cleanup and schema flattening
-        |
-        v
-Silver B: clinical resolution, validation, and quarantine
-        |
-        +------------------------------+
-        |                              |
-        v                              v
-Gold operational cards         Gold analytics snapshot
-        |
-        v
-Streamlit view, draft, review, publish, access, and metadata screens
+Synthetic source files
+                |
+                v
+Object storage landing -> Bronze records and lineage
+                |
+                v
+Silver A structural normalization
+                |
+                v
+Silver B clinical enrichment and validation
+                |
+          Contract + quality gates
+                |
+                v
+Gold operational snapshots and analytics artifacts
+                |
+       +--------+---------+
+       |                  |
+       v                  v
+PostgreSQL operational   MinIO versioned artifacts,
+cards and versions      manifests, and pipeline data
+       |
+       v
+Streamlit search, card view, and controlled change workflow
 ```
 
-The authoritative batch entry point is `main_orchestrator.py`. It delegates to
-`orchestration/minio_medallion_pipeline.py`, which owns the current end-to-end
-pipeline.
+PostgreSQL is the operational source for current preference cards and their
+versions. MinIO stores source files and pipeline artifacts, including
+versioned Gold exports. PostgreSQL bootstraps Iceberg catalogue metadata, but
+current Silver and Gold outputs are files, not persisted Iceberg tables.
 
-## Pipeline Responsibilities
-
-### Source generation and ingestion
-
-The synthetic generator creates clinically aligned orthopaedic preference
-cards and can introduce controlled messiness for testing. The pipeline can
-process aggregate files or one structured JSON/CSV file per card.
-
-Each source file is checksummed and stored at a stable content-addressed
-landing key. PostgreSQL records the file once and links it to each pipeline
-run, preserving provenance while allowing safe repeated ingestion.
-
-### Silver A: structural normalization
-
-Silver A accepts nested and flat record shapes, cleans text and codes, and
-flattens the source into a consistent intermediate representation. It
-preserves instruments, implants, equipment, consumables, and other structured
-items for later clinical processing.
-
-### Silver B: clinical enrichment
-
-Silver B resolves procedures and instrument systems against the shared
-clinical reference service. It checks procedure/system compatibility, expected
-items, malformed quantities, and procedure-specific instructions.
-
-Each record receives clinical flags, missing-item information, a confidence
-score, and one of these frontline readiness states:
+## Human Approval Workflow
 
 ```text
-Ready
-Check before use
-Review required
+Authorised member proposes a draft
+                |
+                v
+A different authorised reviewer approves, rejects, or requests changes
+                |
+                v
+Authorised publisher publishes an approved draft as a new version
 ```
 
-Records with critical anomalies are retained and routed to quarantine rather
-than silently discarded.
+The submitter cannot review their own draft. Approval alone does not make the
+draft current; an authorised publisher must publish it. Decisions and
+published versions are auditable. Automation may validate or suggest a change,
+but cannot bypass human review or approval.
 
-### Gold data products
+Local identity and organisation workflows remain a prototype. Workspace
+creation can currently grant the creator initial administrator access;
+production onboarding still needs sponsor verification, controlled invitations,
+and recovery/abuse controls. Google or other federated sign-in would establish
+identity, not hospital membership or permissions.
 
-The operational Gold output contains one current card per surgeon/procedure
-combination. Duplicate candidates are resolved using version, update time, and
-confidence. The analytics Gold output summarizes the processed clinical data.
+## Run Locally
 
-Both immutable run artifacts and replaceable `latest` views are published:
+Requirements: Docker Compose and Python 3.12 or newer. Keep local credentials
+in an ignored `.env` file. Never put secrets, access tokens, or production
+connection strings in this README or in Git.
 
-```text
-gold/operational/runs/{run_id}/
-gold/operational/latest/
-gold/analytics/runs/{run_id}/
-gold/analytics/latest/
+1. Create `.env` from `.env.example` and set local-only PostgreSQL and MinIO
+   passwords.
+2. Start the stack from this directory:
+
+   ```bash
+   docker compose up --build
+   ```
+
+   Compose starts PostgreSQL and MinIO, runs the synthetic pipeline, then
+   starts Streamlit after a successful pipeline run.
+3. Open `http://localhost:8501`. The public preview uses synthetic cards.
+   PostgreSQL is exposed on host port `5433`; MinIO uses ports `9000` and
+   `9001` for its API and console.
+4. Stop with `Ctrl-C`. `docker compose down` removes containers but retains
+   persistent database and object-store data in Compose volumes.
+
+For local development outside Compose, install dependencies with Poetry and
+start PostgreSQL and MinIO, then run:
+
+```bash
+poetry run python main_orchestrator.py --synthetic-count 1000
+poetry run streamlit run app.py --server.address=127.0.0.1 --server.port=8501
+poetry run pytest tests -q
 ```
 
-## Controlled Product Workflow
+Use `tests` explicitly: unqualified pytest from the repository root may
+discover unrelated vendored test files. Two integration tests use disposable
+local Postgres/MinIO resources and are opt-in.
 
-The Streamlit app reads the latest operational Gold dataset. Published cards
-are not directly edited in place.
+## Verification Snapshot
 
-```text
-Editor submits a draft
-        |
-        v
-Reviewer approves, rejects, or requests changes
-        |
-        v
-Administrator publishes an approved draft
-        |
-        v
-Gold is updated, versioned, and audited
-```
+On 2026-11-11, the Surgeon Preference suite reported **228 passed, 2 skipped**;
+both opt-in local integration tests passed when run separately. Stock Inventory
+reported **43 passed** and Loan Kit Management **8 passed**. Tests use synthetic
+data and do not establish cloud or clinical readiness.
 
-Draft submissions, reviews, and publishing are controlled independently by
-deployment feature flags. Public users can view synthetic demo cards but
-cannot mutate published data.
+## Current Boundaries
 
-Application roles are deliberately separated:
+- Azure hosting, authentication, managed identity, and cloud storage/database
+  operation are not currently verified; there is no hosted end-to-end evidence.
+- PostgreSQL row-level security, immutable internal user IDs, account linking,
+  stronger organisation onboarding, security review, and operational recovery
+  controls remain outstanding.
+- The default local workspace has a PostgreSQL-to-MinIO manifest mismatch;
+  rerun and verify it before presenting it as a fresh successful pipeline run.
+- Theatre Readiness is a target direction, not a unified operational worklist.
+  Stock Inventory has its own case-readiness output; Loan Kit Management is an
+  early synthetic pipeline skeleton.
+- Stock and Loan Kit synthetic case identifiers do not align. Item mappings
+  are incomplete, Stock has no declared Gold schema version, and Loan Kit does
+  not yet provide itemized kit contents. A shared tested contract is required
+  before joining these outputs.
+- Do not enter patient-identifiable or confidential hospital preference data.
+  The system does not replace physical theatre checks, sterilisation records,
+  clinical judgment, or local governance.
+- The FHIR adapter is an early mapping example, not a validated live EPR
+  integration.
 
-| Role | Product permission |
+## Key Code Locations
+
+| Area | Location |
 | --- | --- |
-| `authenticated` | Signed-in identity without mutation rights |
-| `editor` | Create and submit preference-card drafts |
-| `reviewer` | Review submitted drafts |
-| `admin` | Publish approved drafts and manage user access |
-
-Azure Container Apps Authentication or Microsoft Entra ID should authenticate
-users. This application does not store or manage passwords.
-
-## Storage and Metadata
-
-The object-storage interface selects the provider at runtime:
-
-- MinIO/S3-compatible storage for local development;
-- Azure Blob Storage when `AZURE_STORAGE_CONNECTION_STRING` is configured.
-
-PostgreSQL stores searchable operational metadata across these areas:
-
-- raw-file and raw-record ingestion;
-- pipeline execution and Gold artifact audit;
-- object-storage catalogue entries;
-- Iceberg catalogue bootstrap metadata; and
-- organisations, users, memberships, access requests, reviews, and audit events.
-
-The Postgres-backed Iceberg catalogue and warehouse URI are bootstrapped, but
-Silver and Gold are not yet persisted as Iceberg tables. The active production
-path still publishes file-based Gold artifacts to object storage.
-
-## Local and Azure Runtime
-
-The local Docker Compose environment contains:
-
-- PostgreSQL 16;
-- MinIO;
-- the batch pipeline; and
-- the Streamlit web application.
-
-The intended Azure runtime mapping is:
-
-| Local responsibility | Azure implementation |
-| --- | --- |
-| MinIO | Azure Blob Storage |
-| PostgreSQL container | Azure Database for PostgreSQL Flexible Server |
-| Pipeline container | Azure Container App Job |
-| Streamlit container | Azure Container App |
-| Manual/scheduled execution | Azure Data Factory trigger |
-| Local image | Azure Container Registry image |
-
-Azure resources exist, but the subscription is currently disabled. The latest
-application and pipeline changes have not been deployed or verified there.
-The local Compose demo enables synthetic read-only access; cloud deployments
-default that public demo off. Azure activation and a fresh end-to-end run are
-required before making cloud-readiness claims.
-
-## FHIR and EPR Integration
-
-FHIR integration is an early adapter capability, not the primary production
-input path. The current adapter maps a FHIR R4-style bundle containing a
-`ServiceRequest`, `Appointment`, and `Practitioner` into an internal
-`procedure_scheduled` event.
-
-The intended future boundary is:
-
-```text
-EHR/FHIR clinical event
-        -> FHIR adapter
-        -> internal preference event
-        -> existing enrichment and operational-card services
-```
-
-FHIR supplies clinical and scheduling context. Theatre-specific instruments,
-consumables, positioning, preparation, and surgeon preferences remain part of
-the internal product model.
-
-## Current Product Boundary
-
-This is a synthetic-data product and learning platform. It is not currently
-approved for real patient data or confidential hospital preference cards.
-Before clinical deployment, the platform still needs at least:
-
-- proven tenant and organisation isolation;
-- data-processing and information-governance agreements;
-- formal clinical safety review and hazard controls;
-- production backup, restore, retention, and deletion procedures;
-- security, monitoring, alerting, and incident-response validation;
-- end-to-end Azure role and access testing; and
-- a defined process for clinical catalogue ownership and approval.
-
-## Where Development Is Heading
-
-The immediate direction is to consolidate and harden the Version 2 controlled
-workflow rather than expand the old Kardex concept. The wider platform now also
-contains a stock/inventory data product. The two products can eventually
-combine preference demand with inventory availability to support theatre
-readiness, shortage detection, substitutions, and reorder planning.
-
-Likely next engineering milestones are:
-
-1. validate the full authenticated access-request, draft, review, and publish
-   journey in Azure;
-2. strengthen organisation isolation and enforce it consistently at storage
-   and database boundaries;
-3. add production-grade workflow state consistency and publishing rollback;
-4. persist selected medallion outputs as managed Iceberg tables where that
-   provides a real platform benefit;
-5. define the contract between surgeon preferences and stock/inventory; and
-6. expand FHIR integration only after the standalone operational workflow is
-   stable and governed.
-
-## Key Files
-
-```text
-main_orchestrator.py                         primary batch CLI
-orchestration/minio_medallion_pipeline.py   end-to-end medallion pipeline
-silver_transform/silver_a/                  structural normalization
-silver_transform/silver_b/                  clinical enrichment and quarantine
-gold_cleaned/                               operational and analytics products
-domain/clinical_reference_service.py        clinical reference contract
-storage/object_store.py                     MinIO/Azure storage abstraction
-bronze_Ingestion/catalog.py                 Postgres metadata and workflow repository
-app.py                                      Streamlit product interface
-streamlit_services/                         access, drafts, review, and publishing
-adapters/fhir_adapter.py                    initial FHIR event adapter
-sql/azure_postgres_bootstrap.sql            Azure/Postgres schema bootstrap
-tests/                                      clinical and workflow regression tests
-```
+| Application entry point | `app.py` |
+| Pipeline CLI and settings | `main_orchestrator.py`, `config/` |
+| Medallion orchestration | `orchestration/minio_medallion_pipeline.py` |
+| Clinical domain and contracts | `domain/`, `contracts/` |
+| Bronze ingestion and metadata catalogue | `bronze_Ingestion/` |
+| Silver transformations | `silver_transform/` |
+| Gold outputs | `gold_cleaned/` |
+| UI-independent workflow services | `application_services/` |
+| Storage abstraction | `storage/`, shared `platform/shared/storage/` |
+| Streamlit services and renderers | `streamlit_services/`, `streamlit_renderers/` |
+| Tests | `tests/` |
