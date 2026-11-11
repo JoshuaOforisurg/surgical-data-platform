@@ -6,7 +6,6 @@ import io
 import json
 import logging
 import mimetypes
-import csv as csv_module
 from datetime import UTC, datetime
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -89,7 +88,7 @@ class MinIOMedallionPipeline:
                     self.object_store.download_file(landed["object_key"], local_copy)
                     try:
                         records = self._extract_records(local_copy)
-                    except (json.JSONDecodeError, UnicodeDecodeError, csv_module.Error, ValueError) as exc:
+                    except (json.JSONDecodeError, UnicodeDecodeError, csv.Error, ValueError) as exc:
                         quarantine = self._quarantine_source_file(run_id, landed, exc)
                         quarantined_files.append(quarantine)
                         continue
@@ -352,6 +351,45 @@ class MinIOMedallionPipeline:
     def _extract_records(self, local_path: Path) -> List[Dict[str, Any]]:
         if local_path.suffix.lower() == ".json":
             return self._read_json_or_jsonl(local_path)
+
+        if local_path.suffix.lower() == ".csv":
+            with local_path.open("r", encoding="utf-8-sig", newline="") as source:
+                reader = csv.DictReader(source)
+                if not reader.fieldnames:
+                    raise ValueError("CSV is missing its header row.")
+
+                normalised_headers = [
+                    str(header or "").strip().lower().replace(" ", "_")
+                    for header in reader.fieldnames
+                ]
+                if len(normalised_headers) != len(set(normalised_headers)):
+                    raise ValueError("CSV contains duplicate column names after normalization.")
+
+                columns = set(normalised_headers)
+                missing = []
+                if not columns.intersection({"surgeon_name", "surgeon"}):
+                    missing.append("surgeon_name or surgeon")
+                if not columns.intersection({"procedure_name", "procedure"}):
+                    missing.append("procedure_name or procedure")
+                if missing:
+                    raise ValueError(
+                        "CSV schema is missing required identity column(s): "
+                        + ", ".join(missing)
+                    )
+
+                records = []
+                for row_number, row in enumerate(reader, start=2):
+                    if None in row:
+                        raise ValueError(
+                            f"CSV row {row_number} has more values than the header."
+                        )
+                    records.append({
+                        normalised_headers[index]: value
+                        for index, value in enumerate(row.values())
+                    })
+                if not records:
+                    raise ValueError("CSV contains a header but no data rows.")
+                return records
 
         payload = FileReader.read_file(local_path)
         content = payload.get("content")

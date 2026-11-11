@@ -79,7 +79,12 @@ class S3ObjectStoreClient:
             endpoint_url=settings.endpoint,
             aws_access_key_id=settings.access_key,
             aws_secret_access_key=settings.secret_key,
-            config=Config(signature_version="s3v4"),
+            config=Config(
+                signature_version="s3v4",
+                connect_timeout=5,
+                read_timeout=30,
+                retries={"mode": "standard", "max_attempts": 2},
+            ),
             region_name="us-east-1",
             use_ssl=settings.secure,
         )

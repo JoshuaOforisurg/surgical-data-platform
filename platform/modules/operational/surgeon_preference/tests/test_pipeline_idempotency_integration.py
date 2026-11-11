@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import uuid
 from dataclasses import replace
@@ -96,6 +97,9 @@ def test_failure_is_audited_replayed_and_source_remains_idempotent():
                 silver_b_dir=temp_path / "silver_b",
             )
             pipeline.operational_gold = OperationalPreferenceGoldBuilder(temp_path / "gold")
+            # This integration test exercises ingestion/replay against real local
+            # Postgres and MinIO; Iceberg catalog bootstrap has its own boundary.
+            pipeline.catalog.bootstrap_iceberg_catalog = lambda **_kwargs: None
 
             original_process = pipeline.silver_b.process
 
@@ -175,15 +179,26 @@ def test_failure_is_audited_replayed_and_source_remains_idempotent():
                 formats=("json",),
             )
             (mixed_source / "malformed.json").write_text("{invalid json", encoding="utf-8")
+            (mixed_source / "renamed_schema.csv").write_text(
+                "operator,operation\nA. Surgeon,Hip replacement\n",
+                encoding="utf-8",
+            )
 
             mixed_result = pipeline.run(mixed_source)
             quarantine_keys = store.list_objects(
                 f"bronze/quarantine/runs/{mixed_result['run_id']}/"
             )
-            assert mixed_result["files_landed"] == 2
-            assert mixed_result["files_quarantined"] == 1
+            assert mixed_result["files_landed"] == 3
+            assert mixed_result["files_quarantined"] == 2
             assert mixed_result["records_processed"] == 1
-            assert len(quarantine_keys) == 1
+            assert len(quarantine_keys) == 2
+            quarantine_manifests = [
+                json.loads(store.get_text(key)) for key in quarantine_keys
+            ]
+            assert {item["error_type"] for item in quarantine_manifests} == {
+                "JSONDecodeError",
+                "ValueError",
+            }
 
             with psycopg2.connect(test_settings.postgres.psycopg2_dsn) as conn:
                 with conn.cursor() as cur:
@@ -193,7 +208,7 @@ def test_failure_is_audited_replayed_and_source_remains_idempotent():
                         (mixed_result["run_id"],),
                     )
                     assert [row[0] for row in cur.fetchall()] == [
-                        "bronze_registered", "quarantined"
+                        "bronze_registered", "quarantined", "quarantined"
                     ]
     finally:
         if bucket_created:
