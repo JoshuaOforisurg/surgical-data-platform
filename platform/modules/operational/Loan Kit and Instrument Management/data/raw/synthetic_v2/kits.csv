@@ -1,0 +1,5 @@
+kit_id,kit_request_id,supplier_id,kit_name,expected_tray_count,received_tray_count,current_location,return_due_at
+KIT-101,LKR-101,SUP-SYN-01,Knee revision system,3,3,supplier,2026-09-24T17:00:00+01:00
+KIT-102,LKR-102,SUP-SYN-02,Spinal fixation system,4,3,ssd,2026-09-24T17:00:00+01:00
+KIT-103,LKR-103,SUP-SYN-01,Hip revision system,5,5,theatre_reception,2026-09-23T17:00:00+01:00
+KIT-104,LKR-104,SUP-SYN-03,MaxFax reconstruction set,2,0,supplier,2026-09-26T17:00:00+01:00

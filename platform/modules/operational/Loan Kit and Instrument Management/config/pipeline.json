@@ -1,5 +1,5 @@
 {
-  "config_version": "1.0.0",
+  "config_version": "2.0.0",
   "minimum_request_lead_days": 14,
   "near_due_threshold_hours": 48,
   "required_readiness_checks": [
@@ -7,5 +7,15 @@
     "packaging_integrity_passed",
     "sterility_indicator_passed",
     "contents_verified"
+  ],
+  "required_gold_artifacts": [
+    "upcoming_worklist",
+    "at_risk_cases",
+    "receipt_discrepancies",
+    "ssd_status",
+    "theatre_readiness",
+    "outstanding_returns",
+    "supplier_performance",
+    "quality_report"
   ]
 }

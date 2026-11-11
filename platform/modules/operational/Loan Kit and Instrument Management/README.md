@@ -3,7 +3,7 @@
 Synthetic-first data product for reconstructing and reviewing the lifecycle of
 surgical loan kits, reusable instruments, implants, and consumables.
 
-> **Status:** early technical skeleton. It is not validated, deployed, or
+> **Status:** Version 0.2 local technical prototype. It is not validated, deployed, or
 > approved for clinical use. The repository contains synthetic data only.
 
 ## Product hypothesis
@@ -106,6 +106,21 @@ PYTHONPATH=src python3 -m unittest discover -s tests -p 'test_*.py'
 Version 0.1 provides the repository skeleton, canonical event contract,
 deterministic synthetic demonstration, explicit readiness rules, exception
 reporting, lineage fields, reproducible manifest, CLI, and tests.
+
+Version 0.2 adds separate request, supplier, kit, and item sources; a
+deterministic Landing/Bronze/Silver/Gold pipeline; relationship and quantity
+quality checks; and operational Gold worklists for readiness, risk, receipt
+discrepancies, SSD status, returns, and supplier performance. See the
+[Version 0.2 design](docs/product/v0.2_operational_pipeline.md).
+
+Run Version 0.2:
+
+```bash
+PYTHONPATH=src python3 -m loan_kit_pipeline.operational_cli \
+  --source-dir data/raw/synthetic_v2 \
+  --output data/outputs/v0.2 \
+  --as-of 2026-09-21T12:00:00+01:00
+```
 
 Not yet implemented:
 

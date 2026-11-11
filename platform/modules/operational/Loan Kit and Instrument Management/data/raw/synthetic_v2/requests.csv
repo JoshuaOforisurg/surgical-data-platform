@@ -1,0 +1,5 @@
+kit_request_id,case_id,procedure_name,surgeon_id,requested_at,required_by,priority,approval_status
+LKR-101,CASE-SYN-101,Total knee replacement,SURG-SYN-01,2026-09-01T09:00:00+01:00,2026-09-22T08:00:00+01:00,elective,approved
+LKR-102,CASE-SYN-102,Complex spinal fixation,SURG-SYN-02,2026-09-14T09:00:00+01:00,2026-09-22T09:00:00+01:00,elective,approved
+LKR-103,CASE-SYN-103,Revision hip replacement,SURG-SYN-03,2026-09-02T11:00:00+01:00,2026-09-21T08:00:00+01:00,elective,approved
+LKR-104,CASE-SYN-104,Maxillofacial reconstruction,SURG-SYN-04,2026-09-19T10:00:00+01:00,2026-09-24T08:00:00+01:00,urgent,pending

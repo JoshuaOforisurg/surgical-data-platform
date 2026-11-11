@@ -1,0 +1,4 @@
+supplier_id,supplier_name,approved,specialty,contact_channel
+SUP-SYN-01,Synthetic Orthopaedics Ltd,true,orthopaedics,email_and_phone
+SUP-SYN-02,Synthetic Spine Systems,true,spinal,email_and_phone
+SUP-SYN-03,Synthetic MaxFax Devices,true,maxillofacial,email

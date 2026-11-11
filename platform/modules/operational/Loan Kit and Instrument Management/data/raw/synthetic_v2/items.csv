@@ -1,0 +1,8 @@
+item_id,kit_id,item_name,category,catalogue_number,serial_or_lot_number,expected_quantity,received_quantity,used_quantity,returned_quantity,expiry_date,status
+ITEM-101,KIT-101,Femoral trial instrument,instrument,CAT-KNEE-01,SER-101,1,1,1,1,,returned
+ITEM-102,KIT-101,Tibial implant,implant,CAT-KNEE-02,LOT-101,1,1,1,0,2030-12-31,implanted
+ITEM-201,KIT-102,Pedicle screwdriver,instrument,CAT-SPINE-01,SER-201,1,0,0,0,,missing
+ITEM-202,KIT-102,Pedicle screw,implant,CAT-SPINE-02,LOT-202,6,6,0,0,2029-06-30,received
+ITEM-301,KIT-103,Acetabular reamer,instrument,CAT-HIP-01,SER-301,1,1,0,0,,received
+ITEM-302,KIT-103,Femoral stem,implant,CAT-HIP-02,LOT-302,1,1,0,0,2029-11-30,received
+ITEM-401,KIT-104,Reconstruction plate,implant,CAT-MAX-01,LOT-401,2,0,0,0,2030-08-31,expected

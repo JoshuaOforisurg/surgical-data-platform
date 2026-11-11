@@ -1,0 +1,25 @@
+event_id,kit_request_id,case_id,event_type,occurred_at,actor_role,source_system,required_by,supplier_id,check_result,packaging_integrity_passed,sterility_indicator_passed,contents_verified,details
+EVT-101-01,LKR-101,CASE-SYN-101,request_submitted,2026-09-01T09:00:00+01:00,surgeon,synthetic_request,2026-09-22T08:00:00+01:00,,,,,,Request submitted
+EVT-101-02,LKR-101,CASE-SYN-101,request_approved,2026-09-01T12:00:00+01:00,theatre_team_leader,synthetic_approval,2026-09-22T08:00:00+01:00,,,,,,Approved
+EVT-101-03,LKR-101,CASE-SYN-101,supplier_confirmed,2026-09-02T10:00:00+01:00,instrument_coordinator,synthetic_supplier,2026-09-22T08:00:00+01:00,SUP-SYN-01,,,,,Confirmed
+EVT-101-04,LKR-101,CASE-SYN-101,delivery_received,2026-09-18T10:00:00+01:00,theatre_reception,synthetic_receipt,2026-09-22T08:00:00+01:00,SUP-SYN-01,,,,,Delivered
+EVT-101-05,LKR-101,CASE-SYN-101,receipt_check_completed,2026-09-18T11:00:00+01:00,theatre_practitioner,synthetic_check,2026-09-22T08:00:00+01:00,SUP-SYN-01,pass,,,true,Complete
+EVT-101-06,LKR-101,CASE-SYN-101,ssd_handover,2026-09-18T13:00:00+01:00,theatre_practitioner,synthetic_handover,2026-09-22T08:00:00+01:00,SUP-SYN-01,,,,,To SSD
+EVT-101-07,LKR-101,CASE-SYN-101,ssd_released,2026-09-21T15:00:00+01:00,ssd_release_authority,synthetic_ssd,2026-09-22T08:00:00+01:00,SUP-SYN-01,pass,,,,Released
+EVT-101-08,LKR-101,CASE-SYN-101,theatre_check_completed,2026-09-22T07:00:00+01:00,theatre_practitioner,synthetic_theatre,2026-09-22T08:00:00+01:00,SUP-SYN-01,pass,true,true,true,Ready
+EVT-101-09,LKR-101,CASE-SYN-101,kit_used,2026-09-22T10:00:00+01:00,scrub_practitioner,synthetic_case,2026-09-22T08:00:00+01:00,SUP-SYN-01,,,,,Used
+EVT-101-10,LKR-101,CASE-SYN-101,usage_reconciled,2026-09-22T12:00:00+01:00,scrub_practitioner,synthetic_usage,2026-09-22T08:00:00+01:00,SUP-SYN-01,pass,,,,Reconciled
+EVT-101-11,LKR-101,CASE-SYN-101,return_prepared,2026-09-22T14:00:00+01:00,theatre_practitioner,synthetic_return,2026-09-22T08:00:00+01:00,SUP-SYN-01,pass,,,true,Prepared
+EVT-101-12,LKR-101,CASE-SYN-101,supplier_collected,2026-09-23T10:00:00+01:00,instrument_coordinator,synthetic_collection,2026-09-22T08:00:00+01:00,SUP-SYN-01,,,,,Collected
+EVT-101-13,LKR-101,CASE-SYN-101,workflow_closed,2026-09-23T11:00:00+01:00,instrument_coordinator,synthetic_closure,2026-09-22T08:00:00+01:00,SUP-SYN-01,,,,,Closed
+EVT-102-01,LKR-102,CASE-SYN-102,request_submitted,2026-09-14T09:00:00+01:00,surgeon,synthetic_request,2026-09-22T09:00:00+01:00,,,,,,Late request
+EVT-102-02,LKR-102,CASE-SYN-102,request_approved,2026-09-14T12:00:00+01:00,theatre_team_leader,synthetic_approval,2026-09-22T09:00:00+01:00,,,,,,Approved
+EVT-102-03,LKR-102,CASE-SYN-102,supplier_confirmed,2026-09-15T10:00:00+01:00,instrument_coordinator,synthetic_supplier,2026-09-22T09:00:00+01:00,SUP-SYN-02,,,,,Confirmed
+EVT-102-04,LKR-102,CASE-SYN-102,delivery_received,2026-09-20T14:00:00+01:00,theatre_reception,synthetic_receipt,2026-09-22T09:00:00+01:00,SUP-SYN-02,,,,,Three of four trays
+EVT-102-05,LKR-102,CASE-SYN-102,receipt_check_completed,2026-09-20T15:00:00+01:00,theatre_practitioner,synthetic_check,2026-09-22T09:00:00+01:00,SUP-SYN-02,fail,,,false,Missing instrument
+EVT-102-06,LKR-102,CASE-SYN-102,ssd_handover,2026-09-20T16:00:00+01:00,theatre_practitioner,synthetic_handover,2026-09-22T09:00:00+01:00,SUP-SYN-02,,,,,Discrepancy remains open
+EVT-103-01,LKR-103,CASE-SYN-103,request_submitted,2026-09-02T11:00:00+01:00,surgeon,synthetic_request,2026-09-21T08:00:00+01:00,,,,,,Request submitted
+EVT-103-02,LKR-103,CASE-SYN-103,request_approved,2026-09-02T15:00:00+01:00,theatre_team_leader,synthetic_approval,2026-09-21T08:00:00+01:00,,,,,,Approved
+EVT-103-03,LKR-103,CASE-SYN-103,supplier_confirmed,2026-09-04T09:00:00+01:00,instrument_coordinator,synthetic_supplier,2026-09-21T08:00:00+01:00,SUP-SYN-01,,,,,Confirmed
+EVT-103-04,LKR-103,CASE-SYN-103,delivery_received,2026-09-20T18:00:00+01:00,theatre_reception,synthetic_receipt,2026-09-21T08:00:00+01:00,SUP-SYN-01,,,,,Late delivery received
+EVT-104-01,LKR-104,CASE-SYN-104,request_submitted,2026-09-19T10:00:00+01:00,surgeon,synthetic_request,2026-09-24T08:00:00+01:00,,,,,,Urgent request
